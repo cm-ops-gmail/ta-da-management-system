@@ -1,0 +1,232 @@
+/**
+ * Google-Sheet schema for the TA & Per-Diem system.
+ *
+ * Six tabs, and one row per record — a request never spreads across rows.
+ * Trips, team members, document links, payment and advance details all live in
+ * their own columns on the request's single row; every approval desk gets a
+ * column group on the request's single Approvals row. All the small dropdown
+ * lists share one `Lists` tab instead of a tab each.
+ *
+ * Column order IS the contract: rows are read/written positionally against
+ * `headers`, so `npm run setup` and the server can never disagree.
+ */
+
+export interface TabSpec {
+  title: string;
+  headers: string[];
+  /** Rows written once, only when the tab has no data. */
+  seed?: (string | number)[][];
+  color: { red: number; green: number; blue: number };
+  /** Column widths in px, applied left to right. */
+  widths?: number[];
+}
+
+const BLUE = { red: 0.16, green: 0.42, blue: 0.82 };
+const GREEN = { red: 0.13, green: 0.55, blue: 0.36 };
+const AMBER = { red: 0.85, green: 0.6, blue: 0.13 };
+const SLATE = { red: 0.35, green: 0.4, blue: 0.47 };
+
+/** Seniority order, most senior first. */
+export const BAND_ORDER = ["A", "B", "C", "D", "E1", "E2", "F", "G"];
+
+/** Tabs from the previous, sprawling layout. `npm run setup` removes them. */
+export const OBSOLETE_TABS = [
+  "RequestLegs", "TeamMembers", "Payments", "Advances", "Documents", "DocumentChunks",
+  "Cities", "TransportModes", "ApprovalFlow", "WorkedAtOptions", "DualWorkstationOptions",
+  "PaymentMethods", "Notifications",
+];
+
+export const TABS: TabSpec[] = [
+  // ── People ────────────────────────────────────────────────────────────────
+  {
+    title: "Employees",
+    color: BLUE,
+    widths: [110, 170, 240, 100, 90, 70, 150, 180, 130, 210, 130, 150, 90],
+    headers: [
+      "EmployeeID", "Name", "Email", "Password", "Gender", "Band",
+      "Department", "Designation", "LineManagerID", "Roles",
+      "PaymentMethod", "AccountNumber", "Status",
+    ],
+    seed: [
+      ["EMP-1001", "Ariful Islam", "ariful@10ms.com", "1234", "Male", "G", "Sales", "Sales Executive", "EMP-1005", "employee", "bKash", "01700000001", "Active"],
+      ["EMP-1002", "Nusrat Jahan", "nusrat@10ms.com", "1234", "Female", "F", "Academic", "Content Producer", "EMP-1005", "employee", "bKash", "01700000002", "Active"],
+      ["EMP-1003", "Tanvir Ahmed", "tanvir@10ms.com", "1234", "Male", "D", "Operations", "Manager, Operations", "EMP-1006", "employee", "Bank", "1234500001", "Active"],
+      ["EMP-1004", "Sadia Rahman", "sadia@10ms.com", "1234", "Female", "E2", "Marketing", "Marketing Associate", "EMP-1003", "employee", "Nagad", "01700000004", "Active"],
+      ["EMP-1005", "Rakib Hasan", "rakib@10ms.com", "1234", "Male", "C", "Sales", "Head of Sales", "EMP-1006", "employee", "Bank", "1234500002", "Active"],
+      ["EMP-1006", "Farhana Akter", "farhana@10ms.com", "1234", "Female", "B", "PeopleOps", "Director, PeopleOps", "", "employee,hr", "Bank", "1234500003", "Active"],
+      ["EMP-2001", "Admin Desk", "admin@10ms.com", "1234", "Male", "D", "Administration", "Admin Officer", "EMP-1006", "employee,admin", "Bank", "1234500004", "Active"],
+      // Roles are only: employee, admin, hr, finance — and any number of people
+      // can hold each one. Being a line manager or department head is NOT
+      // written here: it is derived from the LineManagerID column, so Rakib
+      // (EMP-1005) is automatically the manager of everyone pointing at him.
+      ["EMP-3001", "Nafisa Karim", "finance@10ms.com", "1234", "Female", "D", "Finance", "Finance Officer", "EMP-1006", "employee,finance", "Bank", "1234500005", "Active"],
+      ["EMP-3002", "Mahin Chowdhury", "finance2@10ms.com", "1234", "Male", "E1", "Finance", "Finance Executive", "EMP-1006", "employee,finance", "Bank", "1234500007", "Active"],
+      ["EMP-4001", "Shirin Akhter", "hr@10ms.com", "1234", "Female", "C", "PeopleOps", "HR Business Partner", "EMP-1006", "employee,hr", "Bank", "1234500006", "Active"],
+      ["EMP-4002", "Sumaiya Islam", "hr2@10ms.com", "1234", "Female", "E1", "PeopleOps", "HR Executive", "EMP-1006", "employee,hr", "Bank", "1234500008", "Active"],
+    ],
+  },
+
+  // ── One row per request ───────────────────────────────────────────────────
+  {
+    title: "Requests",
+    color: GREEN,
+    widths: [150, 150, 150, 150, 110, 160, 210, 70, 140, 160, 100, 130, 110, 110, 80, 260],
+    headers: [
+      "RequestID", "CreatedAt", "UpdatedAt", "Status",
+      "EmployeeID", "EmployeeName", "Email", "Band", "Department", "Designation",
+      "Scope", "City", "ClaimType", "TravelType", "TeamSize", "TeamMembers",
+      "FromDate", "ToDate", "TripDays", "Purpose", "Destination",
+      "StartTime", "EndTime", "WorkingHours", "WorkedAt",
+      "Arrangement", "TransportMode", "VehicleType", "CarSpecialApproval",
+      "TravelFrom", "TravelTo", "TotalKM", "FuelRate", "Trips",
+      "TAAmount", "PerDiemDays", "PerDiemAmount", "LunchAllowance",
+      "WorkedDuringLunch", "OfficeMealTaken", "DualWorkstation", "DualWorkstationType",
+      "HotelName", "CheckIn", "CheckOut", "AccommodationAmount",
+      "RentACarAmount", "RentACarHeadcount", "FlightAmount", "OtherAmount", "OtherNote",
+      "TotalClaim",
+      "AdvanceRequested", "AdvanceApproved", "AdvanceStatus",
+      "SettlementDueDate", "SettledAmount", "SettledAt",
+      "FinalPayable", "ManagerID", "ManagerEmail", "SubmittedAt", "CompletedAt",
+      "DocumentTypes", "DocumentLinks",
+      "PaymentMode", "TransactionID", "PaymentDate", "PaidAmount", "PaidBy",
+      "PolicyNotes", "EmployeeNote",
+    ],
+  },
+
+  // ── One row per request, one column group per desk ────────────────────────
+  {
+    title: "Approvals",
+    color: AMBER,
+    widths: [150, 170, 170, 160, 240, 110, 170, 160, 260, 110, 170, 160, 260, 110, 170, 160, 260, 110, 170, 160, 260],
+    headers: [
+      "RequestID", "EmployeeName", "CurrentStage", "SubmittedAt", "SubmittedRemarks",
+      "ManagerStatus", "ManagerBy", "ManagerAt", "ManagerRemarks",
+      "AdminStatus", "AdminBy", "AdminAt", "AdminRemarks",
+      "FinanceStatus", "FinanceBy", "FinanceAt", "FinanceRemarks",
+      "PaymentStatus", "PaymentBy", "PaymentAt", "PaymentRemarks",
+      "AdvanceHRStatus", "AdvanceHRBy", "AdvanceHRAt",
+      "AdvanceDeptHeadStatus", "AdvanceDeptHeadBy", "AdvanceDeptHeadAt",
+      "LastAction", "LastActionAt",
+    ],
+  },
+
+
+  // ── Admin-configurable policy ─────────────────────────────────────────────
+  {
+    title: "Config",
+    color: SLATE,
+    widths: [260, 120, 470, 130],
+    headers: ["Key", "Value", "Description", "EffectiveFrom"],
+    seed: [
+      ["PER_DIEM_AMOUNT", 250, "Per-Diem amount (BDT) when working hours >= threshold", "2026-01-01"],
+      ["PER_DIEM_MIN_HOURS", 5, "Minimum working hours to qualify for Per-Diem", "2026-01-01"],
+      ["LUNCH_ALLOWANCE", 150, "Lunch allowance (BDT) when hours < threshold but worked through lunch", "2026-01-01"],
+      ["LUNCH_WINDOW_START", "13:00", "Start of the office lunch window", "2026-01-01"],
+      ["LUNCH_WINDOW_END", "15:00", "End of the office lunch window", "2026-01-01"],
+      ["FUEL_RATE_BIKE", 3, "Reimbursement per KM for a personal bike (BDT/km)", "2026-01-01"],
+      ["FUEL_RATE_CAR", 10, "Reimbursement per KM for a personal car (BDT/km)", "2026-01-01"],
+      ["TEAM_CAR_MIN_MEMBERS", 3, "Minimum team size before Car becomes selectable for team travel", "2026-01-01"],
+      ["RENT_A_CAR_LIMIT", 6000, "Maximum rent-a-car cost (BDT) one way", "2026-01-01"],
+      ["RENT_A_CAR_MIN_HEADCOUNT", 3, "Minimum employees required to book a rent-a-car", "2026-01-01"],
+      ["ADVANCE_MIN_TRIP_DAYS", 3, "Advance is offered only when trip days exceed this", "2026-01-01"],
+      ["ADVANCE_AUTO_LIMIT", 10000, "Advance above this amount also needs Department Head approval", "2026-01-01"],
+      ["ADVANCE_SETTLEMENT_DAYS", 3, "Working days after trip end to settle an advance", "2026-01-01"],
+      ["COMPANY_ARRANGE_NOTICE_DAYS", 2, "Business days of notice required for company-arranged travel", "2026-01-01"],
+      ["REQUIRE_DOCUMENT_LINK", "Yes", "Require at least one document link when money is claimed", "2026-01-01"],
+      ["CURRENCY", "BDT", "Display currency", "2026-01-01"],
+      ["REQUEST_ID_PREFIX", "TA", "Prefix used when generating request numbers", "2026-01-01"],
+    ],
+  },
+  {
+    title: "BandPolicy",
+    color: SLATE,
+    widths: [70, 240, 250, 140, 140, 160, 120, 120, 130],
+    headers: [
+      "Band", "ModesMale", "ModesFemale",
+      "OutsideTAWeekday", "OutsideTAWeekend", "AccommodationLimit",
+      "FlightEligible", "CarPoolEligible", "EffectiveFrom",
+    ],
+    seed: [
+      ["A", "Rickshaw,CNG,Car", "Rickshaw,CNG,Car", 1000, 1800, 5000, "Yes", "No", "2026-01-01"],
+      ["B", "Rickshaw,CNG,Car", "Rickshaw,CNG,Car", 1000, 1800, 5000, "Yes", "No", "2026-01-01"],
+      ["C", "Rickshaw,CNG,Car", "Rickshaw,CNG,Car", 900, 1350, 4000, "No", "Yes", "2026-01-01"],
+      ["D", "Rickshaw,CNG,Car", "Rickshaw,CNG,Car", 900, 1350, 4000, "No", "Yes", "2026-01-01"],
+      ["E1", "Rickshaw,Bike,CNG", "Rickshaw,Bike,CNG,Car", 900, 1350, 4000, "No", "Yes", "2026-01-01"],
+      ["E2", "Rickshaw,Bike,CNG", "Rickshaw,Bike,CNG,Car", 900, 1350, 4000, "No", "Yes", "2026-01-01"],
+      ["F", "Rickshaw,Bike,CNG", "Rickshaw,Bike,CNG,Car", 800, 1200, 3000, "No", "Yes", "2026-01-01"],
+      ["G", "Rickshaw,Bike,CNG", "Rickshaw,Bike,CNG,Car", 700, 1050, 2000, "No", "Yes", "2026-01-01"],
+    ],
+  },
+
+  /**
+   * Every dropdown list in the product, in one tab. `Extra1` / `Extra2` carry
+   * the few attributes a list needs (a city's zone, a transport mode's scope,
+   * an approval stage's step and role).
+   */
+  {
+    title: "Lists",
+    color: SLATE,
+    widths: [180, 190, 240, 130, 130, 90],
+    headers: ["ListName", "Value", "Label", "Extra1", "Extra2", "Active"],
+    seed: [
+      ["City", "Dhaka", "Dhaka", "Inside", "", "Yes"],
+      ["City", "Chattogram", "Chattogram", "Inside", "", "Yes"],
+      ["City", "Sylhet", "Sylhet", "Outside", "", "Yes"],
+      ["City", "Khulna", "Khulna", "Outside", "", "Yes"],
+      ["City", "Rajshahi", "Rajshahi", "Outside", "", "Yes"],
+      ["City", "Barishal", "Barishal", "Outside", "", "Yes"],
+      ["City", "Rangpur", "Rangpur", "Outside", "", "Yes"],
+      ["City", "Mymensingh", "Mymensingh", "Outside", "", "Yes"],
+      ["City", "Cox's Bazar", "Cox's Bazar", "Outside", "", "Yes"],
+      ["City", "Other District", "Other District", "Outside", "", "Yes"],
+
+      ["TransportMode", "Rickshaw", "Rickshaw", "Inside", "No", "Yes"],
+      ["TransportMode", "Bike", "Bike", "Inside", "No", "Yes"],
+      ["TransportMode", "CNG", "CNG", "Inside", "No", "Yes"],
+      ["TransportMode", "Car", "Car", "Inside", "No", "Yes"],
+      ["TransportMode", "CompanyVehicle", "Company Vehicle", "Both", "No", "Yes"],
+      ["TransportMode", "PersonalVehicle", "Personal Vehicle (Own Bike / Car)", "Both", "No", "Yes"],
+      ["TransportMode", "RideSharing", "Ride Sharing (Uber / Pathao)", "Both", "Yes", "Yes"],
+      ["TransportMode", "Bus", "Bus", "Outside", "Yes", "Yes"],
+      ["TransportMode", "Train", "Train", "Outside", "Yes", "Yes"],
+      ["TransportMode", "Launch", "Launch", "Outside", "Yes", "Yes"],
+      ["TransportMode", "Flight", "Flight", "Outside", "Yes", "Yes"],
+      ["TransportMode", "RentACar", "Rent a Car", "Outside", "Yes", "Yes"],
+
+      ["WorkedAt", "Office", "Office", "", "", "Yes"],
+      ["WorkedAt", "Partner Office", "Partner Office", "", "", "Yes"],
+      ["WorkedAt", "University", "University", "", "", "Yes"],
+      ["WorkedAt", "Vendor", "Vendor", "", "", "Yes"],
+      ["WorkedAt", "Stakeholder", "Stakeholder", "", "", "Yes"],
+      ["WorkedAt", "Others", "Others", "", "", "Yes"],
+
+      ["DualWorkstation", "HQ Scheduled Day", "HQ Scheduled Day", "", "", "Yes"],
+      ["DualWorkstation", "SBM", "SBM", "", "", "Yes"],
+      ["DualWorkstation", "Tele Sales", "Tele Sales", "", "", "Yes"],
+      ["DualWorkstation", "Shooting", "Shooting", "", "", "Yes"],
+      ["DualWorkstation", "Other", "Other", "", "", "Yes"],
+
+      ["PaymentMethod", "Bank", "Bank", "", "", "Yes"],
+      ["PaymentMethod", "bKash", "bKash", "", "", "Yes"],
+      ["PaymentMethod", "Nagad", "Nagad", "", "", "Yes"],
+
+      ["DocumentType", "Ticket", "Ticket", "", "", "Yes"],
+      ["DocumentType", "Bill", "Bill", "", "", "Yes"],
+      ["DocumentType", "Receipt", "Receipt", "", "", "Yes"],
+      ["DocumentType", "Invoice", "Invoice", "", "", "Yes"],
+      ["DocumentType", "Hotel Bill", "Hotel Bill", "", "", "Yes"],
+      ["DocumentType", "Ride Sharing Receipt", "Ride Sharing Receipt", "", "", "Yes"],
+      ["DocumentType", "Trip Screenshot", "Trip Screenshot", "", "", "Yes"],
+      ["DocumentType", "Fuel Calculation", "Fuel Calculation", "", "", "Yes"],
+      ["DocumentType", "Approval Mail", "Approval Mail", "", "", "Yes"],
+      ["DocumentType", "Supporting Document", "Supporting Document", "", "", "Yes"],
+
+      ["ApprovalStage", "manager_review", "Line Manager", 1, "manager", "Yes"],
+      ["ApprovalStage", "admin_review", "Administration", 2, "admin", "Yes"],
+      ["ApprovalStage", "finance_review", "Finance", 3, "finance", "Yes"],
+      ["ApprovalStage", "payment_processing", "Payment", 4, "finance", "Yes"],
+    ],
+  },
+];
+
+export const TAB = Object.fromEntries(TABS.map((t) => [t.title, t])) as Record<string, TabSpec>;

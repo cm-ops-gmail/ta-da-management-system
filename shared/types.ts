@@ -1,0 +1,305 @@
+/** Types shared by the Express API and the React client. */
+
+export type Scope = "inside" | "outside";
+export type ClaimType = "ta" | "perdiem" | "both";
+export type TravelType = "individual" | "team";
+export type Arrangement = "company" | "self";
+
+export type Status =
+  | "draft"
+  | "manager_review"
+  | "admin_review"
+  | "finance_review"
+  | "payment_processing"
+  | "paid"
+  | "completed"
+  | "returned"
+  | "rejected";
+
+export const STATUS_LABEL: Record<Status, string> = {
+  draft: "Draft",
+  manager_review: "Under Manager Review",
+  admin_review: "Under Admin Review",
+  finance_review: "Under Finance Review",
+  payment_processing: "Payment Processing",
+  paid: "Paid",
+  completed: "Completed",
+  returned: "Returned for Correction",
+  rejected: "Rejected",
+};
+
+export const STATUS_PROGRESS: Record<Status, number> = {
+  draft: 0,
+  manager_review: 20,
+  admin_review: 40,
+  finance_review: 60,
+  payment_processing: 80,
+  paid: 92,
+  completed: 100,
+  returned: 10,
+  rejected: 100,
+};
+
+/** Ordered stages used to draw the tracking timeline. */
+export const TRACK_STAGES: { key: Status; label: string; column: StageKey }[] = [
+  { key: "manager_review", label: "Manager Review", column: "Manager" },
+  { key: "admin_review", label: "Admin Review", column: "Admin" },
+  { key: "finance_review", label: "Finance Review", column: "Finance" },
+  { key: "payment_processing", label: "Payment", column: "Payment" },
+];
+
+/** Column-group prefixes in the one-row-per-request Approvals tab. */
+export type StageKey = "Manager" | "Admin" | "Finance" | "Payment";
+
+/**
+ * Roles written in the Employees sheet. Being a line manager or a department
+ * head is NOT one of them — those are derived from the LineManagerID column,
+ * so the hierarchy only ever has to be maintained in one place.
+ */
+export type Role = "employee" | "admin" | "hr" | "finance";
+
+export interface SessionUser {
+  employeeId: string;
+  name: string;
+  email: string;
+  gender: string;
+  band: string;
+  department: string;
+  designation: string;
+  lineManagerId: string;
+  roles: Role[];
+  paymentMethod: string;
+  accountNumber: string;
+  /**
+   * Derived, not stored: true when at least one active employee lists this
+   * person as their line manager. Recomputed on every sign-in and /me, so
+   * pointing a report at a new manager takes effect immediately.
+   */
+  managesOthers?: boolean;
+}
+
+export interface TeamMember {
+  employeeId: string;
+  name: string;
+  department: string;
+  designation: string;
+  band: string;
+}
+
+export interface Leg {
+  travelDate: string;
+  mode: string;
+  travelFrom: string;
+  travelTo: string;
+  amount: number;
+  note: string;
+}
+
+export interface RequestDraft {
+  requestId?: string;
+  scope: Scope;
+  city: string;
+  claimType: ClaimType;
+  travelType: TravelType;
+  teamMembers: TeamMember[];
+  fromDate: string;
+  toDate: string;
+  purpose: string;
+  destination: string;
+  startTime: string;
+  endTime: string;
+  workedAt: string;
+  arrangement: Arrangement;
+  transportMode: string;
+  vehicleType: string;
+  carSpecialApproval: boolean;
+  travelFrom: string;
+  travelTo: string;
+  totalKM: number;
+  legs: Leg[];
+  workedDuringLunch: boolean;
+  officeMealTaken: boolean;
+  dualWorkstation: boolean;
+  dualWorkstationType: string;
+  hotelName: string;
+  checkIn: string;
+  checkOut: string;
+  accommodationAmount: number;
+  rentACarAmount: number;
+  rentACarHeadcount: number;
+  flightAmount: number;
+  otherAmount: number;
+  otherNote: string;
+  advanceRequested: number;
+  /** Multi-select: which kinds of document the links below cover. */
+  documentTypes: string[];
+  /** Google Drive (or any) links, one per entry. */
+  documentLinks: string[];
+  employeeNote: string;
+}
+
+export interface BandPolicy {
+  band: string;
+  modesMale: string[];
+  modesFemale: string[];
+  outsideTAWeekday: number;
+  outsideTAWeekend: number;
+  accommodationLimit: number;
+  flightEligible: boolean;
+  carPoolEligible: boolean;
+}
+
+export interface TransportModeSpec {
+  mode: string;
+  label: string;
+  requiresReceipt: boolean;
+  scope: "Inside" | "Outside" | "Both";
+}
+
+export interface Policy {
+  config: Record<string, string>;
+  bands: BandPolicy[];
+  cities: { city: string; zone: "Inside" | "Outside" }[];
+  modes: TransportModeSpec[];
+  workedAtOptions: string[];
+  dualWorkstationOptions: string[];
+  paymentMethods: string[];
+  documentTypes: string[];
+  approvalFlow: { step: number; stage: string; label: string; roleRequired: string }[];
+}
+
+export interface Computation {
+  workingHours: number;
+  tripDays: number;
+  weekdayDays: number;
+  weekendDays: number;
+  taAmount: number;
+  perDiemEligible: boolean;
+  perDiemDays: number;
+  perDiemAmount: number;
+  lunchEligible: boolean;
+  lunchAllowance: number;
+  accommodationAmount: number;
+  accommodationLimit: number;
+  rentACarAmount: number;
+  flightAmount: number;
+  otherAmount: number;
+  totalClaim: number;
+  advanceRequested: number;
+  finalPayable: number;
+  advanceAvailable: boolean;
+  requiresDeptHeadApproval: boolean;
+  notes: string[];
+  errors: string[];
+  warnings: string[];
+}
+
+/** One request = one row in the Requests tab. */
+export interface RequestRecord {
+  requestId: string;
+  createdAt: string;
+  updatedAt: string;
+  status: Status;
+  employeeId: string;
+  employeeName: string;
+  email: string;
+  band: string;
+  department: string;
+  designation: string;
+  scope: Scope;
+  city: string;
+  claimType: ClaimType;
+  travelType: TravelType;
+  teamSize: number;
+  teamMembers: TeamMember[];
+  fromDate: string;
+  toDate: string;
+  tripDays: number;
+  purpose: string;
+  destination: string;
+  startTime: string;
+  endTime: string;
+  workingHours: number;
+  workedAt: string;
+  arrangement: Arrangement;
+  transportMode: string;
+  vehicleType: string;
+  carSpecialApproval: boolean;
+  travelFrom: string;
+  travelTo: string;
+  totalKM: number;
+  fuelRate: number;
+  legs: Leg[];
+  taAmount: number;
+  perDiemDays: number;
+  perDiemAmount: number;
+  lunchAllowance: number;
+  workedDuringLunch: boolean;
+  officeMealTaken: boolean;
+  dualWorkstation: boolean;
+  dualWorkstationType: string;
+  hotelName: string;
+  checkIn: string;
+  checkOut: string;
+  accommodationAmount: number;
+  rentACarAmount: number;
+  rentACarHeadcount: number;
+  flightAmount: number;
+  otherAmount: number;
+  otherNote: string;
+  totalClaim: number;
+  advanceRequested: number;
+  advanceApproved: number;
+  advanceStatus: string;
+  settlementDueDate: string;
+  settledAmount: number;
+  settledAt: string;
+  finalPayable: number;
+  managerId: string;
+  managerEmail: string;
+  submittedAt: string;
+  completedAt: string;
+  documentTypes: string[];
+  documentLinks: string[];
+  policyNotes: string;
+  employeeNote: string;
+  paymentMode: string;
+  transactionId: string;
+  paymentDate: string;
+  paidAmount: number;
+  paidBy: string;
+}
+
+/** One request = one row in the Approvals tab, with a column group per desk. */
+export interface ApprovalRow {
+  requestId: string;
+  employeeName: string;
+  currentStage: string;
+  submittedAt: string;
+  submittedRemarks: string;
+  managerStatus: string;
+  managerBy: string;
+  managerAt: string;
+  managerRemarks: string;
+  adminStatus: string;
+  adminBy: string;
+  adminAt: string;
+  adminRemarks: string;
+  financeStatus: string;
+  financeBy: string;
+  financeAt: string;
+  financeRemarks: string;
+  paymentStatus: string;
+  paymentBy: string;
+  paymentAt: string;
+  paymentRemarks: string;
+  advanceHRStatus: string;
+  advanceHRBy: string;
+  advanceHRAt: string;
+  advanceDeptHeadStatus: string;
+  advanceDeptHeadBy: string;
+  advanceDeptHeadAt: string;
+  lastAction: string;
+  lastActionAt: string;
+}
+

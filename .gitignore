@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite-cache
+.vercel
+.env
+.env.local
+*.log
+.DS_Store
+
+# Holds the raw service-account private key — never commit
+test.md

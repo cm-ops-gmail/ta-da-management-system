@@ -1,0 +1,1056 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft, ArrowRight, Check, Link as LinkIcon, Loader2, Plus, Send, Trash2, Users,
+} from "lucide-react";
+import { api } from "../api.js";
+import {
+  cfgNum, cfgStr, computeRequest, eligibleModes, emptyDraft, fuelRateFor, type ModeOption,
+} from "../../shared/policy.js";
+import type { Leg, Policy, RequestDraft, SessionUser, TeamMember } from "../../shared/types.js";
+import { Card, ChoiceGrid, Field, Money, MultiSelect, Notice, SearchInput, Toggle } from "./ui.js";
+
+const STEPS = ["Travel Type", "Trip Details", "Transportation", "Allowances", "Documents"];
+
+export default function NewRequest({
+  user, policy, editing, onDone, onCancel,
+}: {
+  user: SessionUser;
+  policy: Policy;
+  editing?: { draft: RequestDraft; requestId: string } | null;
+  onDone: (requestId: string) => void;
+  onCancel: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [draft, setDraft] = useState<RequestDraft>(editing?.draft ?? emptyDraft("inside"));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const currency = cfgStr(policy, "CURRENCY", "BDT");
+  const set = (patch: Partial<RequestDraft>) => setDraft((d) => ({ ...d, ...patch }));
+
+  const teamSize = draft.travelType === "team" ? draft.teamMembers.length + 1 : 1;
+  const computation = useMemo(() => computeRequest(policy, draft, user), [policy, draft, user]);
+  const modes = useMemo(
+    () => eligibleModes(policy, {
+      band: user.band,
+      gender: user.gender,
+      scope: draft.scope,
+      travelType: draft.travelType,
+      teamSize,
+      carSpecialApproval: draft.carSpecialApproval,
+    }),
+    [policy, user, draft.scope, draft.travelType, teamSize, draft.carSpecialApproval],
+  );
+
+  // Switching city scope invalidates a mode that only exists on the other side.
+  useEffect(() => {
+    if (draft.transportMode && !modes.some((m) => m.mode === draft.transportMode)) {
+      set({ transportMode: "" });
+    }
+  }, [modes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const insideCities = policy.cities.filter((c) => c.zone === "Inside");
+  const outsideCities = policy.cities.filter((c) => c.zone === "Outside");
+
+  async function save(submit: boolean) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = editing
+        ? await api.update(editing.requestId, draft, submit)
+        : await api.create(draft, submit);
+      onDone(res.request.requestId);
+    } catch (err) {
+      setError((err as Error).message);
+      setStep(4);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <button onClick={onCancel} className="rounded-lg p-2 text-slate-500 hover:bg-slate-200">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h1 className="text-base font-bold text-slate-900 sm:text-lg">
+            {editing ? `Edit ${editing.requestId}` : "New travel claim"}
+          </h1>
+          <p className="text-xs text-slate-500">
+            The system applies your Band {user.band} policy automatically — you only enter what happened.
+          </p>
+        </div>
+      </div>
+
+      <Stepper step={step} onStep={setStep} />
+
+      <div className="grid gap-4 sm:gap-5 lg:grid-cols-[1fr_20rem]">
+        <div className="space-y-5">
+          {step === 0 && (
+            <StepTravelType
+              draft={draft}
+              set={set}
+              insideCities={insideCities.map((c) => c.city)}
+              outsideCities={outsideCities.map((c) => c.city)}
+              user={user}
+            />
+          )}
+          {step === 1 && <StepDetails draft={draft} set={set} policy={policy} />}
+          {step === 2 && (
+            <StepTransport draft={draft} set={set} policy={policy} modes={modes} user={user} currency={currency} />
+          )}
+          {step === 3 && (
+            <StepAllowances draft={draft} set={set} policy={policy} user={user} computation={computation} currency={currency} />
+          )}
+          {step === 4 && (
+            <StepDocuments draft={draft} set={set} documentTypes={policy.documentTypes} />
+          )}
+
+          {error && <Notice tone="error" items={[error]} />}
+
+          <div className="sticky bottom-16 z-10 -mx-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-100/95 px-3 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 lg:bottom-0">
+            <button
+              className="btn-ghost"
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              disabled={step === 0}
+            >
+              <ArrowLeft size={16} /> Back
+            </button>
+            <div className="flex gap-2">
+              <button className="btn-ghost" onClick={() => save(false)} disabled={busy}>
+                Save draft
+              </button>
+              {step < STEPS.length - 1 ? (
+                <button className="btn-primary" onClick={() => setStep((s) => s + 1)}>
+                  Next <ArrowRight size={16} />
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  onClick={() => save(true)}
+                  disabled={busy || computation.errors.length > 0}
+                >
+                  {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Submit request
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <LiveSummary computation={computation} currency={currency} />
+      </div>
+    </div>
+  );
+}
+
+// ── Stepper ─────────────────────────────────────────────────────────────────
+
+function Stepper({ step, onStep }: { step: number; onStep: (n: number) => void }) {
+  return (
+    <ol className="card flex gap-0.5 overflow-x-auto p-1.5 sm:gap-1 sm:p-2">
+      {STEPS.map((label, i) => (
+        <li key={label} className="min-w-0 flex-1">
+          <button
+            onClick={() => onStep(i)}
+            className={`flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition sm:gap-2 sm:px-3 ${
+              i === step
+                ? "bg-brand-600 text-white"
+                : i < step
+                  ? "text-emerald-700 hover:bg-emerald-50"
+                  : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            {i < step ? <Check size={14} /> : <span className="tabular-nums">{i + 1}</span>}
+            <span className="hidden sm:inline">{label}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ── Step 1 ──────────────────────────────────────────────────────────────────
+
+function StepTravelType({
+  draft, set, insideCities, outsideCities, user,
+}: {
+  draft: RequestDraft;
+  set: (p: Partial<RequestDraft>) => void;
+  insideCities: string[];
+  outsideCities: string[];
+  user: SessionUser;
+}) {
+  return (
+    <>
+      <Card title="What type of travel are you making?">
+        <ChoiceGrid
+          value={draft.scope}
+          onChange={(scope) =>
+            set({
+              scope,
+              city: scope === "inside" ? insideCities[0] || "" : "",
+              transportMode: "",
+              claimType: scope === "outside" ? "both" : draft.claimType,
+            })
+          }
+          options={[
+            { value: "inside", label: "Inside City", description: `Same-city travel — ${insideCities.join(", ")}` },
+            { value: "outside", label: "Outside City", description: "Travel to another district, with per-diem and accommodation" },
+          ]}
+        />
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Field label="City" required>
+            <select className="field" value={draft.city} onChange={(e) => set({ city: e.target.value })}>
+              <option value="">Select a city</option>
+              {(draft.scope === "inside" ? insideCities : outsideCities).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </Field>
+
+          {draft.scope === "outside" && (
+            <Field label="Travel arrangement" required>
+              <select
+                className="field"
+                value={draft.arrangement}
+                onChange={(e) => set({ arrangement: e.target.value as RequestDraft["arrangement"] })}
+              >
+                <option value="self">Self Arrangement</option>
+                <option value="company">Company Arrangement</option>
+              </select>
+            </Field>
+          )}
+        </div>
+      </Card>
+
+      {draft.scope === "inside" && (
+        <Card title="What are you claiming?">
+          <ChoiceGrid
+            columns={3}
+            value={draft.claimType}
+            onChange={(claimType) => set({ claimType })}
+            options={[
+              { value: "ta", label: "TA Only", description: "Transport reimbursement only" },
+              { value: "perdiem", label: "Per-Diem Only", description: "Meal / per-diem entitlement only" },
+              { value: "both", label: "TA + Per-Diem", description: "Both, in a single claim" },
+            ]}
+          />
+        </Card>
+      )}
+
+      <Card title="Who is travelling?">
+        <ChoiceGrid
+          value={draft.travelType}
+          onChange={(travelType) => set({ travelType, teamMembers: travelType === "individual" ? [] : draft.teamMembers })}
+          options={[
+            { value: "individual", label: "Individual", description: `Just you — Band ${user.band}` },
+            { value: "team", label: "Team", description: "Add colleagues travelling with you" },
+          ]}
+        />
+        {draft.travelType === "team" && (
+          <div className="mt-5">
+            <TeamPicker
+              members={draft.teamMembers}
+              onChange={(teamMembers) => set({ teamMembers })}
+              excludeId={user.employeeId}
+            />
+          </div>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function TeamPicker({
+  members, onChange, excludeId,
+}: { members: TeamMember[]; onChange: (m: TeamMember[]) => void; excludeId: string }) {
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState<TeamMember[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState("");
+
+  const query = q.trim();
+
+  /**
+   * Debounced lookup, and the query is the ONLY dependency on purpose: adding a
+   * member changes the parent's state, and if that re-ran this effect it would
+   * cancel the in-flight search and blank the list. Nothing is fetched or shown
+   * until the employee actually types.
+   */
+  useEffect(() => {
+    if (!query) {
+      setFound([]);
+      setSearching(false);
+      setError("");
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    setError("");
+    const timer = window.setTimeout(async () => {
+      try {
+        const { employees } = await api.employees(query);
+        if (cancelled) return;
+        setFound(employees.map((e) => ({
+          employeeId: e.employeeId,
+          name: e.name,
+          department: e.department,
+          designation: e.designation,
+          band: e.band,
+        })));
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
+  // Yourself and anyone already added are filtered out at render time, not
+  // inside the fetch, so the list stays correct as members are added.
+  const results = found.filter(
+    (e) => e.employeeId !== excludeId && !members.some((m) => m.employeeId === e.employeeId),
+  );
+
+  return (
+    <div className="space-y-3">
+      <Field label="Add members" hint="Tap a name to add them. Search by employee ID or name — department, designation and band fill in automatically.">
+        <SearchInput
+          value={q}
+          onChange={setQ}
+          busy={searching}
+          placeholder="Search by name or employee ID"
+        />
+      </Field>
+
+      {error && <Notice tone="error" items={[error]} />}
+
+      {/* Nothing is shown until the employee types — the roster is not a list
+          to browse, it is a thing to search. */}
+      {query && !error && !searching && results.length === 0 && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+          Nobody matches “{query}”. Try the employee ID, or part of the name.
+        </p>
+      )}
+
+      {query && results.length > 0 && (
+        <ul className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+          {results.map((r) => (
+            <li key={r.employeeId}>
+              <button
+                type="button"
+                onClick={() => {
+                  onChange([...members, r]);
+                  setQ("");
+                }}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-slate-50"
+              >
+                <span>
+                  <span className="font-medium text-slate-800">{r.name}</span>
+                  <span className="ml-2 text-xs text-slate-500">{r.employeeId} · {r.designation}</span>
+                </span>
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                  Band {r.band}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {members.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2 font-semibold">Employee</th>
+                <th className="px-3 py-2 font-semibold">Department</th>
+                <th className="px-3 py-2 font-semibold">Designation</th>
+                <th className="px-3 py-2 font-semibold">Band</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {members.map((m) => (
+                <tr key={m.employeeId}>
+                  <td className="px-3 py-2">
+                    <span className="font-medium text-slate-800">{m.name}</span>
+                    <span className="ml-2 text-xs text-slate-400">{m.employeeId}</span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">{m.department}</td>
+                  <td className="px-3 py-2 text-slate-600">{m.designation}</td>
+                  <td className="px-3 py-2 text-slate-600">{m.band}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onChange(members.filter((x) => x.employeeId !== m.employeeId))}
+                      className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="flex items-center gap-2 text-xs text-slate-500">
+        <Users size={14} /> {members.length + 1} traveller(s) including you.
+      </p>
+    </div>
+  );
+}
+
+// ── Step 2 ──────────────────────────────────────────────────────────────────
+
+function StepDetails({
+  draft, set, policy,
+}: { draft: RequestDraft; set: (p: Partial<RequestDraft>) => void; policy: Policy }) {
+  const outside = draft.scope === "outside";
+  return (
+    <>
+      <Card title="Trip details">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={outside ? "Departure date" : "Travel date"} required>
+            <input
+              type="date"
+              className="field"
+              value={draft.fromDate}
+              onChange={(e) => set({ fromDate: e.target.value, toDate: outside ? draft.toDate : e.target.value })}
+            />
+          </Field>
+          {outside && (
+            <Field label="Return date" required>
+              <input type="date" className="field" value={draft.toDate} onChange={(e) => set({ toDate: e.target.value })} />
+            </Field>
+          )}
+          <Field label="Destination" required={!outside} hint={outside ? "Specific place / office visited" : undefined}>
+            <input
+              className="field"
+              value={draft.destination}
+              onChange={(e) => set({ destination: e.target.value })}
+              placeholder={outside ? "Sylhet regional office" : "Banani partner office"}
+            />
+          </Field>
+          <Field label="Purpose" required>
+            <input
+              className="field"
+              value={draft.purpose}
+              onChange={(e) => set({ purpose: e.target.value })}
+              placeholder="Partner meeting, campus activation…"
+            />
+          </Field>
+        </div>
+      </Card>
+
+      {!outside && (draft.claimType === "perdiem" || draft.claimType === "both") && (
+        <Card title="Where and when did you work?" subtitle="Working hours are calculated automatically — Per-Diem eligibility follows from them.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Worked at" required>
+              <select className="field" value={draft.workedAt} onChange={(e) => set({ workedAt: e.target.value })}>
+                <option value="">Select</option>
+                {policy.workedAtOptions.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            </Field>
+            <div />
+            <Field label="Start time" required>
+              <input type="time" className="field" value={draft.startTime} onChange={(e) => set({ startTime: e.target.value })} />
+            </Field>
+            <Field label="End time" required>
+              <input type="time" className="field" value={draft.endTime} onChange={(e) => set({ endTime: e.target.value })} />
+            </Field>
+          </div>
+        </Card>
+      )}
+    </>
+  );
+}
+
+// ── Step 3 ──────────────────────────────────────────────────────────────────
+
+function StepTransport({
+  draft, set, policy, modes, user, currency,
+}: {
+  draft: RequestDraft;
+  set: (p: Partial<RequestDraft>) => void;
+  policy: Policy;
+  modes: ModeOption[];
+  user: SessionUser;
+  currency: string;
+}) {
+  const inside = draft.scope === "inside";
+  const claimsTA = draft.claimType === "ta" || draft.claimType === "both";
+  const juniorMale = inside && !String(user.gender).toLowerCase().startsWith("f") &&
+    modes.some((m) => m.mode === "Car" && !m.enabled && m.reason.includes("pre-approval"));
+
+  if (inside && !claimsTA) {
+    return (
+      <Card title="Transportation">
+        <p className="text-sm text-slate-500">
+          This is a Per-Diem-only claim, so no transport details are needed. Continue to the next step.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card
+        title="How did you travel?"
+        subtitle={`Only the options your Band ${user.band} policy allows are shown${draft.travelType === "team" ? `, adjusted for a team of ${draft.teamMembers.length + 1}` : ""}.`}
+      >
+        <ChoiceGrid
+          columns={4}
+          value={draft.transportMode}
+          onChange={(transportMode) => set({ transportMode, legs: [] })}
+          options={modes.map((m) => ({
+            value: m.mode,
+            label: m.label,
+            disabled: !m.enabled,
+            reason: m.reason,
+          }))}
+        />
+
+        {juniorMale && (
+          <div className="mt-4">
+            <Toggle
+              checked={draft.carSpecialApproval}
+              onChange={(carSpecialApproval) => set({ carSpecialApproval })}
+              label="Car was pre-approved for this trip"
+              hint="Attach the approval mail in the Documents step — Administration will verify it."
+            />
+          </div>
+        )}
+      </Card>
+
+      {draft.transportMode === "CompanyVehicle" && (
+        <Notice tone="info" items={["A company vehicle was used, so no transport reimbursement is payable for this trip."]} />
+      )}
+
+      {draft.transportMode === "PersonalVehicle" && (
+        <Card title="Personal vehicle" subtitle="Reimbursement = total KM × the fuel rate configured by Administration.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Vehicle type" required>
+              <select className="field" value={draft.vehicleType} onChange={(e) => set({ vehicleType: e.target.value })}>
+                <option value="">Select</option>
+                <option value="Bike">Own Bike</option>
+                <option value="Car">Own Car</option>
+              </select>
+            </Field>
+            <Field label="Total KM" required>
+              <input
+                type="number"
+                min={0}
+                className="field"
+                value={draft.totalKM || ""}
+                onChange={(e) => set({ totalKM: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Travel from" required>
+              <input className="field" value={draft.travelFrom} onChange={(e) => set({ travelFrom: e.target.value })} />
+            </Field>
+            <Field label="Travel to" required>
+              <input className="field" value={draft.travelTo} onChange={(e) => set({ travelTo: e.target.value })} />
+            </Field>
+          </div>
+          {draft.vehicleType && (
+            <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              {draft.totalKM || 0} km × {fuelRateFor(policy, draft.vehicleType)} {currency}/km ={" "}
+              <span className="font-semibold text-slate-900">
+                <Money value={(draft.totalKM || 0) * fuelRateFor(policy, draft.vehicleType)} currency={currency} />
+              </span>
+            </p>
+          )}
+        </Card>
+      )}
+
+      {draft.transportMode && !["CompanyVehicle", "PersonalVehicle"].includes(draft.transportMode) && (
+        <LegsEditor
+          draft={draft}
+          set={set}
+          currency={currency}
+          title={inside ? "Trips taken" : "Travel tickets"}
+          subtitle={
+            inside
+              ? "Inside-city transport is reimbursed against actual receipts — add each trip."
+              : "Intercity fares are reimbursed at actual. Add each ticket and attach the receipt in the Documents step."
+          }
+        />
+      )}
+    </>
+  );
+}
+
+function LegsEditor({
+  draft, set, currency, title, subtitle,
+}: {
+  draft: RequestDraft;
+  set: (p: Partial<RequestDraft>) => void;
+  currency: string;
+  title: string;
+  subtitle: string;
+}) {
+  const legs = draft.legs;
+  const update = (i: number, patch: Partial<Leg>) =>
+    set({ legs: legs.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) });
+
+  return (
+    <Card
+      title={title}
+      subtitle={subtitle}
+      actions={
+        <button
+          className="btn-ghost !px-3 !py-1.5 text-xs"
+          onClick={() =>
+            set({
+              legs: [
+                ...legs,
+                { travelDate: draft.fromDate, mode: draft.transportMode, travelFrom: "", travelTo: "", amount: 0, note: "" },
+              ],
+            })
+          }
+        >
+          <Plus size={14} /> Add trip
+        </button>
+      }
+    >
+      {!legs.length ? (
+        <p className="py-6 text-center text-sm text-slate-400">No trips added yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {legs.map((leg, i) => (
+            <div key={i} className="grid grid-cols-2 gap-2.5 rounded-xl border border-slate-200 p-3 sm:grid-cols-[9rem_1fr_1fr_8rem_auto] sm:gap-3">
+              <input type="date" className="field" value={leg.travelDate} onChange={(e) => update(i, { travelDate: e.target.value })} />
+              <input className="field" placeholder="From" value={leg.travelFrom} onChange={(e) => update(i, { travelFrom: e.target.value })} />
+              <input className="field" placeholder="To" value={leg.travelTo} onChange={(e) => update(i, { travelTo: e.target.value })} />
+              <input
+                type="number"
+                min={0}
+                className="field"
+                placeholder={currency}
+                value={leg.amount || ""}
+                onChange={(e) => update(i, { amount: Number(e.target.value) })}
+              />
+              <button
+                onClick={() => set({ legs: legs.filter((_, idx) => idx !== i) })}
+                className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+          <p className="text-right text-sm font-semibold text-slate-700">
+            Total: <Money value={legs.reduce((s, l) => s + (Number(l.amount) || 0), 0)} currency={currency} />
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Step 4 ──────────────────────────────────────────────────────────────────
+
+function StepAllowances({
+  draft, set, policy, user, computation, currency,
+}: {
+  draft: RequestDraft;
+  set: (p: Partial<RequestDraft>) => void;
+  policy: Policy;
+  user: SessionUser;
+  computation: ReturnType<typeof computeRequest>;
+  currency: string;
+}) {
+  const inside = draft.scope === "inside";
+  const minHours = cfgNum(policy, "PER_DIEM_MIN_HOURS", 5);
+  const band = policy.bands.find((b) => b.band === user.band);
+
+  if (inside) {
+    const claimsPerDiem = draft.claimType === "perdiem" || draft.claimType === "both";
+    return (
+      <>
+        {claimsPerDiem && (
+          <Card
+            title="Per-Diem & meals"
+            subtitle={`You worked ${computation.workingHours} hour(s). Eligibility is decided by the system, not by you.`}
+          >
+            <div className="space-y-3">
+              {computation.perDiemEligible ? (
+                <Notice
+                  tone="info"
+                  items={[
+                    `Per-Diem of ${currency} ${computation.perDiemAmount} is approved automatically (≥ ${minHours} hours). Lunch is included, so lunch allowance is switched off.`,
+                  ]}
+                />
+              ) : (
+                <>
+                  <Toggle
+                    checked={draft.workedDuringLunch}
+                    onChange={(workedDuringLunch) => set({ workedDuringLunch })}
+                    label="Did you work during lunch time?"
+                    hint={`Under ${minHours} hours, working through lunch qualifies for the lunch allowance.`}
+                  />
+                  <Toggle
+                    checked={draft.dualWorkstation ? true : draft.officeMealTaken}
+                    disabled={draft.dualWorkstation}
+                    onChange={(officeMealTaken) => set({ officeMealTaken })}
+                    label="Office meal taken?"
+                    hint="If the office provided a meal, lunch allowance is not payable — no duplicate meal claims."
+                  />
+                </>
+              )}
+            </div>
+          </Card>
+        )}
+
+        <Card title="Dual workstation" subtitle="Tick this when the day was split across a scheduled second workstation.">
+          <div className="space-y-3">
+            <Toggle
+              checked={draft.dualWorkstation}
+              onChange={(dualWorkstation) => set({ dualWorkstation, dualWorkstationType: dualWorkstation ? draft.dualWorkstationType : "" })}
+              label="This was a dual-workstation day"
+              hint="TA and Per-Diem stay claimable; a company meal is assumed, so duplicate meal claims are blocked."
+            />
+            {draft.dualWorkstation && (
+              <Field label="Reason" required>
+                <select
+                  className="field"
+                  value={draft.dualWorkstationType}
+                  onChange={(e) => set({ dualWorkstationType: e.target.value })}
+                >
+                  <option value="">Select</option>
+                  {policy.dualWorkstationOptions.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Anything else?">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={`Other amount (${currency})`}>
+              <input
+                type="number"
+                min={0}
+                className="field"
+                value={draft.otherAmount || ""}
+                onChange={(e) => set({ otherAmount: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="What is it for?">
+              <input className="field" value={draft.otherNote} onChange={(e) => set({ otherNote: e.target.value })} />
+            </Field>
+          </div>
+        </Card>
+      </>
+    );
+  }
+
+  // Outside city.
+  const advanceMinDays = cfgNum(policy, "ADVANCE_MIN_TRIP_DAYS", 3);
+  return (
+    <>
+      <Card title="Per-Diem" subtitle="Loaded automatically from your band — no manual calculation.">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Stat label="Trip length" value={`${computation.tripDays} day(s)`} />
+          <Stat label="Weekday rate" value={`${currency} ${band?.outsideTAWeekday ?? 0}`} />
+          <Stat label="Weekend rate" value={`${currency} ${band?.outsideTAWeekend ?? 0}`} />
+        </div>
+        <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          {computation.weekdayDays} weekday + {computation.weekendDays} weekend ={" "}
+          <span className="font-semibold text-slate-900">
+            <Money value={computation.perDiemAmount} currency={currency} />
+          </span>
+          . This already covers local transport and 3 meals, so no separate TA is claimed.
+        </p>
+      </Card>
+
+      <Card title="Accommodation" subtitle={`Actual hotel bill, up to ${currency} ${band?.accommodationLimit ?? 0} per night for Band ${user.band}.`}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Hotel name">
+            <input className="field" value={draft.hotelName} onChange={(e) => set({ hotelName: e.target.value })} />
+          </Field>
+          <Field label={`Amount (${currency})`}>
+            <input
+              type="number"
+              min={0}
+              className="field"
+              value={draft.accommodationAmount || ""}
+              onChange={(e) => set({ accommodationAmount: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Check-in">
+            <input type="date" className="field" value={draft.checkIn} onChange={(e) => set({ checkIn: e.target.value })} />
+          </Field>
+          <Field label="Check-out">
+            <input type="date" className="field" value={draft.checkOut} onChange={(e) => set({ checkOut: e.target.value })} />
+          </Field>
+        </div>
+      </Card>
+
+      <Card title="Car pool & flight">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label={`Rent-a-car amount (${currency})`}
+            hint={`Needs at least ${cfgNum(policy, "RENT_A_CAR_MIN_HEADCOUNT", 3)} employees; limit ${currency} ${cfgNum(policy, "RENT_A_CAR_LIMIT", 6000)} one way.`}
+          >
+            <input
+              type="number"
+              min={0}
+              className="field"
+              value={draft.rentACarAmount || ""}
+              onChange={(e) => set({ rentACarAmount: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Employees sharing the car">
+            <input
+              type="number"
+              min={0}
+              className="field"
+              value={draft.rentACarHeadcount || ""}
+              onChange={(e) => set({ rentACarHeadcount: Number(e.target.value) })}
+            />
+          </Field>
+          <Field
+            label={`Flight amount (${currency})`}
+            hint={band?.flightEligible ? "Your band is flight-eligible." : `Band ${user.band} is not flight-eligible.`}
+          >
+            <input
+              type="number"
+              min={0}
+              disabled={!band?.flightEligible}
+              className="field"
+              value={draft.flightAmount || ""}
+              onChange={(e) => set({ flightAmount: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label={`Other amount (${currency})`}>
+            <input
+              type="number"
+              min={0}
+              className="field"
+              value={draft.otherAmount || ""}
+              onChange={(e) => set({ otherAmount: Number(e.target.value) })}
+            />
+          </Field>
+        </div>
+      </Card>
+
+      <Card
+        title="Travel advance"
+        subtitle={
+          computation.advanceAvailable
+            ? "Available because this trip is longer than the policy threshold."
+            : `An advance is only offered for outside-city trips longer than ${advanceMinDays} days.`
+        }
+      >
+        <Field label={`Advance needed (${currency})`}>
+          <input
+            type="number"
+            min={0}
+            disabled={!computation.advanceAvailable}
+            className="field"
+            value={draft.advanceRequested || ""}
+            onChange={(e) => set({ advanceRequested: Number(e.target.value) })}
+          />
+        </Field>
+        {computation.requiresDeptHeadApproval && (
+          <div className="mt-3">
+            <Notice
+              tone="warn"
+              items={[
+                `Above ${currency} ${cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000)}, this advance also needs Department Head approval.`,
+              ]}
+            />
+          </div>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-bold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+// ── Step 5 ──────────────────────────────────────────────────────────────────
+
+function StepDocuments({
+  draft, set, documentTypes,
+}: {
+  draft: RequestDraft;
+  set: (p: Partial<RequestDraft>) => void;
+  documentTypes: string[];
+}) {
+  // Kept as raw text while typing so the employee can paste a whole block of
+  // links; it is split into individual links on every change.
+  const [raw, setRaw] = useState(draft.documentLinks.join("\n"));
+
+  function onLinks(text: string) {
+    setRaw(text);
+    set({ documentLinks: text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean) });
+  }
+
+  const bad = draft.documentLinks.filter((l) => !/^https?:\/\/\S+$/i.test(l));
+
+  return (
+    <>
+      <Card
+        title="Documents"
+        subtitle="Upload your tickets, bills, receipts, invoices, hotel bills or approval mail to Drive, then share the links here."
+      >
+        <div className="space-y-4">
+          <Field
+            label="Document types"
+            required
+            hint="Pick every type your links cover — you can select more than one."
+          >
+            <MultiSelect
+              options={documentTypes}
+              value={draft.documentTypes}
+              onChange={(documentTypes) => set({ documentTypes })}
+              placeholder="Select document types…"
+            />
+          </Field>
+
+          <Field
+            label="Drive links"
+            required
+            hint="One link per line — or paste several separated by spaces or commas."
+          >
+            <textarea
+              className="field min-h-32 font-mono text-xs"
+              value={raw}
+              onChange={(e) => onLinks(e.target.value)}
+              placeholder={"https://drive.google.com/file/d/…/view\nhttps://drive.google.com/file/d/…/view"}
+            />
+          </Field>
+
+          {draft.documentLinks.length > 0 && (
+            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+              {draft.documentLinks.map((link, i) => {
+                const valid = /^https?:\/\/\S+$/i.test(link);
+                return (
+                  <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                    <LinkIcon size={15} className={valid ? "shrink-0 text-slate-400" : "shrink-0 text-rose-500"} />
+                    <span className={`min-w-0 flex-1 truncate ${valid ? "text-slate-600" : "text-rose-600"}`}>
+                      {link}
+                    </span>
+                    {valid && (
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-xs font-semibold text-brand-600 hover:underline"
+                      >
+                        Open
+                      </a>
+                    )}
+                    <button
+                      onClick={() => onLinks(draft.documentLinks.filter((_, idx) => idx !== i).join("\n"))}
+                      className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {bad.length > 0 && (
+            <Notice tone="error" items={[`Not a valid link: ${bad.slice(0, 3).join(", ")} — paste the full URL starting with https://`]} />
+          )}
+
+          <Notice
+            tone="info"
+            items={["Set your Drive sharing so your line manager, Administration and Finance can open the files — otherwise they will see “Request access”."]}
+          />
+        </div>
+      </Card>
+
+      <Card title="Note for the approvers">
+        <textarea
+          className="field min-h-24"
+          value={draft.employeeNote}
+          onChange={(e) => set({ employeeNote: e.target.value })}
+          placeholder="Anything your line manager, Administration or Finance should know."
+        />
+      </Card>
+    </>
+  );
+}
+
+// ── Live summary rail ───────────────────────────────────────────────────────
+
+function LiveSummary({
+  computation, currency,
+}: { computation: ReturnType<typeof computeRequest>; currency: string }) {
+  const lines: [string, number][] = [
+    ["Transportation", computation.taAmount],
+    ["Per-Diem", computation.perDiemAmount],
+    ["Lunch allowance", computation.lunchAllowance],
+    ["Accommodation", computation.accommodationAmount],
+    ["Rent-a-car", computation.rentACarAmount],
+    ["Flight", computation.flightAmount],
+    ["Other", computation.otherAmount],
+  ];
+
+  return (
+    <aside className="order-first space-y-4 lg:order-none lg:sticky lg:top-6 lg:self-start">
+      <div className="card overflow-hidden">
+        <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live calculation</p>
+        </div>
+        <div className="space-y-2 px-5 py-4 text-sm">
+          {lines.filter(([, v]) => v > 0).map(([label, value]) => (
+            <div key={label} className="flex justify-between">
+              <span className="text-slate-600">{label}</span>
+              <span className="font-medium text-slate-800"><Money value={value} currency={currency} /></span>
+            </div>
+          ))}
+          {!lines.some(([, v]) => v > 0) && <p className="text-slate-400">Nothing calculated yet.</p>}
+          <div className="mt-3 flex justify-between border-t border-slate-200 pt-3">
+            <span className="font-semibold text-slate-700">Total claim</span>
+            <span className="font-bold text-slate-900"><Money value={computation.totalClaim} currency={currency} /></span>
+          </div>
+          {computation.advanceRequested > 0 && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Less advance</span>
+                <span className="font-medium text-rose-600">
+                  − <Money value={computation.advanceRequested} currency={currency} />
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-2">
+                <span className="font-semibold text-slate-700">Final payable</span>
+                <span className="font-bold text-emerald-600"><Money value={computation.finalPayable} currency={currency} /></span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <Notice tone="error" title="Fix before submitting" items={computation.errors} />
+      <Notice tone="warn" title="Needs attention" items={computation.warnings} />
+      <Notice tone="info" title="How this was calculated" items={computation.notes} />
+    </aside>
+  );
+}

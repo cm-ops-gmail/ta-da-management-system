@@ -1,0 +1,219 @@
+# Transportation Allowance (TA) & Per-Diem Management System
+
+A fully digital TA, Per-Diem, accommodation and travel-management module for PeopleOps, built to the
+PRD in `Transportation Allowance (TA) & Per-Diem Management System.docx`. A Bangla summary of the
+requirement is in [REQUIREMENT-BANGLA.md](REQUIREMENT-BANGLA.md).
+
+**The database is the Google Sheet** — no other datastore is involved.
+
+## Run it
+
+```bash
+npm install
+npm run setup     # creates / repairs / migrates the 6 tabs (safe to re-run)
+npm run dev       # http://localhost:3000
+```
+
+Production: `npm run build && npm start`.
+
+Credentials come from `.env` (generated from `test.md`): `GOOGLE_CLIENT_EMAIL`,
+`GOOGLE_PRIVATE_KEY`, `SPREADSHEET_ID`.
+
+## Sign in
+
+Accounts live in the **Employees** tab. Seeded logins all use password `1234`:
+
+| Email | Roles column | Reports to | Band |
+|---|---|---|---|
+| ariful@10ms.com | `employee` | Rakib | G (male) |
+| nusrat@10ms.com | `employee` | Rakib | F (female) |
+| sadia@10ms.com | `employee` | Tanvir | E2 |
+| tanvir@10ms.com | `employee` | Farhana | D |
+| rakib@10ms.com | `employee` | Farhana | C |
+| farhana@10ms.com | `employee,hr` | — | B |
+| admin@10ms.com | `employee,admin` | Farhana | D |
+| finance@10ms.com · finance2@10ms.com | `employee,finance` | Farhana | D · E1 |
+| hr@10ms.com · hr2@10ms.com | `employee,hr` | Farhana | C · E1 |
+
+### Only four roles — the hierarchy is not one of them
+
+The `Roles` column holds just `employee`, `admin`, `hr`, `finance`, and **any number of people can
+hold each one**. Add a row to `Employees` (or use Configuration → Employees), give them `finance` or
+`hr`, and they sign in with their own email straight away.
+
+**You never write "manager" or "department head" anywhere.** Both come from the `LineManagerID`
+column, which you are maintaining regardless:
+
+- **Line manager** — anyone whose employee ID appears in someone else's `LineManagerID`. They get
+  the Approval Desk automatically, and see exactly their own reports' claims. Rakib above has the
+  plain `employee` role and still approves Ariful's claims, because Ariful points at him.
+- **Department head** — one level above the approving line manager, i.e. the line manager's own line
+  manager. For Ariful (→ Rakib → Farhana) that is Farhana, so she is the one who approves an advance
+  above the limit. If the line manager is already the top of the chain, the advance simply stops at
+  HR.
+
+Move a person to a different manager in the sheet and their approvals move with them on the next
+request — nothing else to update.
+
+A shared queue works as you'd expect: a claim waiting on Finance appears in **every** Finance
+person's Pending Approvals, whoever opens it first decides it, and from that moment the others can
+no longer act on it. The Approvals row then carries **that person's own name** — `FinanceBy`,
+`PaymentBy`, `AdvanceHRBy` and so on record who actually clicked, with their own remark beside it.
+The same holds for HR on advances and for `PaidBy` on the request row.
+
+## Google Sheet tabs — six, one row per record
+
+Created, formatted and migrated automatically by `npm run setup` (frozen bold headers,
+colour-coded tabs, column widths, filters).
+
+| Tab | What it holds |
+|---|---|
+| `Employees` | People, bands, `LineManagerID` (which defines the whole hierarchy), roles, login |
+| `Requests` | **One row per claim.** Trips, team members, document links, payment details and advance/settlement are columns on that row — never extra rows |
+| `Approvals` | **One row per claim**, with a column group per desk: `ManagerStatus / ManagerBy / ManagerAt / ManagerRemarks`, then Admin, Finance, Payment, and the advance HR / Dept-Head steps |
+| `Config` | Rates, limits and thresholds as key/value |
+| `BandPolicy` | Per-band transport lists, outside-city rates, accommodation limit, flight and car-pool eligibility |
+| `Lists` | Every dropdown in one tab, keyed by `ListName` — City, TransportMode, WorkedAt, DualWorkstation, PaymentMethod, DocumentType, ApprovalStage |
+
+Repeating data is packed one item per line inside a single cell, `field | field | field`:
+
+```
+Trips         2026-09-07 | Bus | Dhaka | Sylhet | 1200 |
+TeamMembers   EMP-1002 | Nusrat Jahan | Academic | Content Producer | F
+DocumentLinks https://drive.google.com/file/d/…/view
+              https://drive.google.com/file/d/…/view
+```
+
+## Works on a phone
+
+The whole app is built mobile-first, because most claims get filed from a phone right after the
+trip:
+
+- Phones get a **bottom tab bar** for the main screens and a slide-in drawer for the rest; the
+  workspace switch (My Claims / Approvals) sits permanently under the header.
+- Every list renders as **tappable cards on phones** and as a full table from tablet width up — no
+  pinching or sideways scrolling to read a claim.
+- Inputs are 16px on phones so **iOS does not zoom** on focus, with comfortable tap targets and
+  proper date/time control heights.
+- Modals open as **bottom sheets** on phones and as centred dialogs on desktop.
+- In the request wizard the live calculation sits **above** the form on phones, and the
+  Back / Save draft / Next bar is sticky, so the running total and the next step are always visible.
+
+## Documents
+
+No file uploads. The employee uploads to Drive and shares the links: a **multi-select** of document
+types (Ticket, Bill, Receipt, Invoice, Hotel Bill, Ride Sharing Receipt, Trip Screenshot, Fuel
+Calculation, Approval Mail, Supporting Document — all editable in `Lists`), plus a box for **as many
+links as needed**, one per line or pasted separated by spaces/commas. Links are validated, listed
+individually with an Open button, and approvers click straight through from the request. Add or
+rename a document type in `Lists` and it appears in the dropdown immediately.
+
+## How the policy works
+
+`shared/policy.ts` is the single rule engine. It is pure and imported by **both** the client (to hide
+ineligible options and show a live calculation) and the server (which re-runs it on submit and is
+authoritative). It reads every number from the sheet — nothing is hard-coded:
+
+- **Transport eligibility** by band, gender and team size. A Band G male sees Rickshaw/Bike/CNG; the
+  same band female also sees Car; Band D and above see Rickshaw/CNG/Car. A team of 2 loses Car, a
+  team of 3+ regains it. Car for a junior male appears locked with the reason, and unlocks on the
+  "pre-approved" toggle.
+- **Per-Diem** decided by the system, not the employee: ≥5 hours → BDT 250 and lunch allowance is
+  switched off; <5 hours worked through lunch → BDT 150; an office meal or a dual-workstation day
+  blocks the duplicate meal claim.
+- **Personal vehicle** = total KM × the admin-configured per-km rate.
+- **Dual workstation** — a day split across two work locations by schedule (HQ Scheduled Day, SBM,
+  Tele Sales, Shooting, Other). TA and Per-Diem both stay claimable, but the day is treated as one
+  where the company provided a meal, so the lunch allowance is switched off and no duplicate meal
+  claim is possible.
+- **Outside city** loads the band's weekday/weekend rate automatically (weekday × rate + weekend ×
+  rate), caps accommodation at the band limit per night, blocks flight for non-eligible bands, and
+  rejects a rent-a-car under 3 people or flags it above the BDT 6,000 one-way limit.
+- **Company arrangement** is blocked under 2 business days' notice with the PRD's exact wording, and
+  notifies Administration immediately when valid.
+- **Advance** only for outside-city trips over 3 days; Line Manager → HR, plus Department Head above
+  BDT 10,000 (the department head being derived from the line-manager chain); settlement due 3
+  working days after the trip.
+
+Change any of it from **Configuration** in the app, or by editing the sheet directly — no code change.
+
+## Capacity against the Google Sheets quota
+
+Sheets allows 300 reads/min and 300 writes/min per service account. Measured cost (via
+`GET /api/admin/stats`, admin only):
+
+| Action | Reads | Writes |
+|---|---|---|
+| Open the app | 1 | 0 |
+| Typing in the form (live calculation) | 0 | 0 |
+| Submit a claim | 2 | 2 |
+| One approval | 2 | 2 |
+| **A whole claim, submit → paid, everyone looking** | **17** | **10** |
+
+For 300 employees with ~50 claims a day that is ~850 reads and ~500 writes spread over a working
+day — a couple of calls a minute against a 300/min budget. The quota only matters if many people
+act inside the *same minute*, so three things protect it:
+
+- **Caching** — the policy, employee roster and header rows are cached, so browsing and typing cost
+  nothing. The live calculation in the form runs entirely in the browser.
+- **A token-bucket rate limiter** paces all Sheets traffic below the quota, turning a spike into a
+  short queue instead of a wall of errors. Tune with `SHEETS_READS_PER_MINUTE` /
+  `SHEETS_WRITES_PER_MINUTE`.
+- **Retry with backoff** absorbs anything that still gets a 429.
+
+Verified: 20 people submitting simultaneously and then pushing all 20 claims through every desk
+completes with **zero failures**.
+
+Two caveats worth knowing. The rate limiter and the request-number lock are **per process**, so run
+a single server instance — on multi-instance serverless they would not coordinate. And if you ever
+outgrow this, the fix is to move the `Requests` tab to a real database and keep the sheet as a
+mirror; nothing else in the design would change.
+
+## Two workspaces: My Claims vs Approval Desk
+
+A line manager, HR or Finance person is both a claimant and an approver. Those two jobs never share
+a screen. The sidebar has a workspace switch (shown only to people who approve something):
+
+| **My Claims** — what you spend | **Approval Desk** — what you decide |
+|---|---|
+| Dashboard (your own summary cards) | Desk Overview (queue, pipeline, value at your desk) |
+| My Requests | Pending Approvals — at your desk right now |
+| My Advance | Decided by Me |
+| My Payments | Advance Approvals *(HR / Finance / Dept Head)* |
+| | Payments *(Finance / Admin)* |
+| | All Claims |
+| | Configuration *(Admin / HR)* |
+
+The separation is enforced by the API, not just hidden in the UI: `mine*` scopes return only the
+signed-in person's own claims, and `desk*` scopes exclude them. A manager's own claim goes to *their*
+line manager and never appears in their own approval queue. The pending badge and desk counters are
+computed separately from the personal summary cards.
+
+## Workflow
+
+`Employee → Line Manager → Administration → Finance → Payment → Completed`, with Approve / Reject /
+Return / Request-more-documents and remarks at every desk. Approvers see what is waiting on them as
+a live count on the Approvals tab and on the Pending Approvals item — there is no separate
+notification feed. Employees watch a live progress bar and a
+per-stage timeline showing who acted, when, and what they said. Finance gets one consolidated screen
+(claim, advance adjustment, final payable, document links) plus Bank / bKash / Nagad with
+transaction ID. A trip that drew an advance stays at *Paid* until the advance is settled, then
+closes to *Completed*.
+
+Each decision overwrites its own column group on the request's single Approvals row, so a returned
+and resubmitted claim shows that desk back at *Pending* rather than appending history. `LastAction`
+and `LastActionAt` always name the most recent decision.
+
+## Layout
+
+```
+server.ts               API + Vite middleware
+server/schema.ts        every tab, header and seed row — the single source of truth
+server/sheets.ts        record layer over the sheet, rate limiting, retry, write lock
+server/store.ts         row ↔ record mapping, cell packing, policy and roster loading
+server/auth.ts          stateless HMAC session tokens
+shared/policy.ts        the rule engine, shared by client and server
+shared/types.ts         shared types
+scripts/setup-sheets.ts create, repair and migrate the spreadsheet
+src/                    React client
+```

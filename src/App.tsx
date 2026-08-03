@@ -1,0 +1,404 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  Banknote, CheckCheck, FileText, HandCoins, Inbox, LayoutDashboard, ListChecks,
+  LogOut, Menu, Plane, Plus, Settings, ShieldCheck, User, Wallet, X,
+} from "lucide-react";
+import { api, clearToken, getToken } from "./api.js";
+import type { Policy, RequestDraft, SessionUser } from "../shared/types.js";
+import Login from "./components/Login.js";
+import Dashboard from "./components/Dashboard.js";
+import DeskDashboard from "./components/DeskDashboard.js";
+import NewRequest from "./components/NewRequest.js";
+import RequestList from "./components/RequestList.js";
+import RequestDetail from "./components/RequestDetail.js";
+import Advances from "./components/Advances.js";
+import AdminConfig from "./components/AdminConfig.js";
+import { Spinner } from "./components/ui.js";
+
+/**
+ * Two workspaces, never mixed: "self" is what the person claims, "desk" is
+ * what they decide on for other people. Approvers switch between them; everyone
+ * else only ever sees "self".
+ */
+type Workspace = "self" | "desk";
+
+type View =
+  | { name: "new"; editing?: { draft: RequestDraft; requestId: string } }
+  | { name: "detail"; requestId: string }
+  | { name: string };
+
+interface NavItem {
+  key: string;
+  label: string;
+  /** Shorter label for the mobile tab bar. */
+  short: string;
+  icon: typeof LayoutDashboard;
+  badge?: number;
+}
+
+export default function App() {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [policy, setPolicy] = useState<Policy | null>(null);
+  const [booting, setBooting] = useState(true);
+  const [workspace, setWorkspace] = useState<Workspace>("self");
+  const [view, setView] = useState<View>({ name: "dashboard" });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [inbox, setInbox] = useState(0);
+
+  const bootstrap = useCallback(async (signedIn: SessionUser) => {
+    setUser(signedIn);
+    const [p, r] = await Promise.all([api.policy(), api.requests("mine").catch(() => null)]);
+    setPolicy(p);
+    if (r) setInbox(r.inbox);
+  }, []);
+
+  useEffect(() => {
+    if (!getToken()) {
+      setBooting(false);
+      return;
+    }
+    api.me()
+      .then(({ user: u }) => bootstrap(u))
+      .catch(() => clearToken())
+      .finally(() => setBooting(false));
+  }, [bootstrap]);
+
+  if (booting) return <Spinner label="Starting up…" />;
+  if (!user) {
+    return (
+      <Login
+        onSignedIn={(u) => {
+          setBooting(true);
+          bootstrap(u).finally(() => setBooting(false));
+        }}
+      />
+    );
+  }
+  if (!policy) return <Spinner label="Loading policy…" />;
+
+  // "Do you approve anything?" — a role from the sheet, or reports of your own.
+  const isFinance = user.roles.includes("finance");
+  const isAdmin = user.roles.some((r) => ["admin", "hr"].includes(r));
+  const isApprover = isAdmin || isFinance || !!user.managesOthers;
+  const reviewsAdvances = isAdmin || isFinance || !!user.managesOthers;
+
+  const selfNav: NavItem[] = [
+    { key: "dashboard", label: "Dashboard", short: "Home", icon: LayoutDashboard },
+    { key: "my-requests", label: "My Requests", short: "Claims", icon: FileText },
+    { key: "my-advance", label: "My Advance", short: "Advance", icon: HandCoins },
+    { key: "my-payments", label: "My Payments", short: "Paid", icon: Wallet },
+  ];
+
+  const deskNav: NavItem[] = ([
+    { key: "desk", label: "Desk Overview", short: "Desk", icon: ShieldCheck, show: true },
+    { key: "desk-pending", label: "Pending Approvals", short: "Pending", icon: Inbox, show: true, badge: inbox },
+    { key: "desk-processed", label: "Decided by Me", short: "Decided", icon: CheckCheck, show: true },
+    { key: "desk-advances", label: "Advance Approvals", short: "Advance", icon: HandCoins, show: reviewsAdvances },
+    { key: "desk-payments", label: "Payments", short: "Pay", icon: Banknote, show: isFinance || isAdmin },
+    { key: "desk-all", label: "All Claims", short: "All", icon: ListChecks, show: true },
+    { key: "admin", label: "Configuration", short: "Config", icon: Settings, show: isAdmin },
+  ] as (NavItem & { show: boolean })[]).filter((n) => n.show).map(({ show: _show, ...n }) => n);
+
+  const nav = workspace === "self" ? selfNav : deskNav;
+  // The phone tab bar only has room for a few — the rest stay in the drawer.
+  const mobileNav = nav.slice(0, 4);
+
+  const go = (name: string) => {
+    setView({ name });
+    setMenuOpen(false);
+  };
+  const refresh = () => setRefreshKey((k) => k + 1);
+
+  const switchWorkspace = (next: Workspace) => {
+    setWorkspace(next);
+    setView({ name: next === "self" ? "dashboard" : "desk" });
+    setMenuOpen(false);
+  };
+
+  const WorkspaceSwitch = ({ compact = false }: { compact?: boolean }) => (
+    <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+      <button
+        onClick={() => switchWorkspace("self")}
+        className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition ${
+          workspace === "self" ? "bg-white text-brand-700 shadow-sm" : "text-slate-500"
+        }`}
+      >
+        <User size={13} /> {compact ? "Mine" : "My Claims"}
+      </button>
+      <button
+        onClick={() => switchWorkspace("desk")}
+        className={`relative flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition ${
+          workspace === "desk" ? "bg-white text-brand-700 shadow-sm" : "text-slate-500"
+        }`}
+      >
+        <ShieldCheck size={13} /> Approvals
+        {inbox > 0 && workspace !== "desk" && (
+          <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+            {inbox}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="min-h-full lg:flex">
+      {/* Sidebar — a drawer on phones, always-on from lg up */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] shrink-0 flex-col border-r border-slate-200 bg-white transition-transform duration-200 lg:static lg:w-64 lg:max-w-none lg:translate-x-0 ${
+          menuOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 px-5">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-brand-600 text-white">
+            <Plane size={16} />
+          </span>
+          <span className="text-sm font-bold leading-tight text-slate-800">
+            TA & Per-Diem
+            <span className="block text-xs font-normal text-slate-400">PeopleOps</span>
+          </span>
+          <button
+            className="-mr-2 ml-auto rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:hidden"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Close menu"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {isApprover && (
+          <div className="border-b border-slate-200 p-3">
+            <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Workspace</p>
+            <WorkspaceSwitch />
+          </div>
+        )}
+
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
+          {workspace === "self" && (
+            <button className="btn-primary mb-3 w-full" onClick={() => { setView({ name: "new" }); setMenuOpen(false); }}>
+              <Plus size={16} /> New Request
+            </button>
+          )}
+          {nav.map(({ key, label, icon: Icon, badge }) => (
+            <button
+              key={key}
+              onClick={() => go(key)}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                view.name === key ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <Icon size={16} />
+              <span className="flex-1 text-left">{label}</span>
+              {badge ? (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{badge}</span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
+
+        <div className="shrink-0 border-t border-slate-200 p-3">
+          <div className="mb-2 px-2">
+            <p className="truncate text-sm font-semibold text-slate-700">{user.name}</p>
+            <p className="truncate text-xs text-slate-400">Band {user.band} · {user.department}</p>
+          </div>
+          <button
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            onClick={() => { clearToken(); window.location.reload(); }}
+          >
+            <LogOut size={16} /> Sign out
+          </button>
+        </div>
+      </aside>
+
+      {menuOpen && (
+        <div className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden" onClick={() => setMenuOpen(false)} />
+      )}
+
+      {/* Main */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:h-16 sm:px-4 lg:px-8">
+          <button
+            className="-ml-1 rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={20} />
+          </button>
+          <span className="flex size-7 items-center justify-center rounded-lg bg-brand-600 text-white sm:hidden">
+            <Plane size={14} />
+          </span>
+          <span className={`hidden rounded-full px-3 py-1 text-xs font-semibold ring-1 sm:inline-flex ${
+            workspace === "self"
+              ? "bg-slate-50 text-slate-600 ring-slate-200"
+              : "bg-brand-50 text-brand-700 ring-brand-200"
+          }`}>
+            {workspace === "self" ? "My Claims" : "Approval Desk"}
+          </span>
+          <div className="flex-1" />
+          {workspace === "self" && (
+            <button
+              className="btn-primary !px-3 !py-1.5 text-xs lg:hidden"
+              onClick={() => setView({ name: "new" })}
+            >
+              <Plus size={14} /> New
+            </button>
+          )}
+        </header>
+
+        {/* Workspace switch is worth a permanent slot on phones */}
+        {isApprover && (
+          <div className="border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
+            <WorkspaceSwitch compact />
+          </div>
+        )}
+
+        <main className="mx-auto w-full max-w-6xl flex-1 p-3 pb-24 sm:p-4 lg:p-8 lg:pb-8">
+          {/* ── My Claims workspace ── */}
+          {view.name === "dashboard" && (
+            <Dashboard
+              user={user}
+              onNew={() => setView({ name: "new" })}
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+              onGoto={go}
+            />
+          )}
+
+          {view.name === "new" && (
+            <NewRequest
+              user={user}
+              policy={policy}
+              editing={(view as { editing?: { draft: RequestDraft; requestId: string } }).editing}
+              onDone={(requestId) => { refresh(); setView({ name: "detail", requestId }); }}
+              onCancel={() => setView({ name: "dashboard" })}
+            />
+          )}
+
+          {view.name === "my-requests" && (
+            <RequestList
+              scope="mine"
+              showEmployee={false}
+              refreshKey={refreshKey}
+              title="My Requests"
+              subtitle="Every claim you have raised, with its live status."
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+            />
+          )}
+
+          {view.name === "my-advance" && (
+            <Advances scope="mine" policy={policy} onOpen={(requestId) => setView({ name: "detail", requestId })} />
+          )}
+
+          {view.name === "my-payments" && (
+            <RequestList
+              scope="mine_payments"
+              showEmployee={false}
+              refreshKey={refreshKey}
+              title="My Payments"
+              subtitle="Your claims that reached payment — processing, paid and completed."
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+            />
+          )}
+
+          {/* ── Approval Desk workspace ── */}
+          {view.name === "desk" && (
+            <DeskDashboard
+              user={user}
+              policy={policy}
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+              onGoto={go}
+            />
+          )}
+
+          {view.name === "desk-pending" && (
+            <RequestList
+              scope="pending"
+              refreshKey={refreshKey}
+              showFilters
+              title="Pending Approvals"
+              subtitle="Other people's requests waiting on your decision right now."
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+            />
+          )}
+
+          {view.name === "desk-processed" && (
+            <RequestList
+              scope="processed"
+              refreshKey={refreshKey}
+              title="Decided by Me"
+              subtitle="Requests you have already approved, returned or rejected."
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+            />
+          )}
+
+          {view.name === "desk-advances" && (
+            <Advances scope="desk" policy={policy} onOpen={(requestId) => setView({ name: "detail", requestId })} />
+          )}
+
+          {view.name === "desk-payments" && (
+            <RequestList
+              scope="desk_payments"
+              refreshKey={refreshKey}
+              title="Payments"
+              subtitle="Other people's claims at payment stage, paid and completed."
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+            />
+          )}
+
+          {view.name === "desk-all" && (
+            <RequestList
+              // Admin / Finance / HR get the full register including their own
+              // claims; a line manager still only sees their reports'.
+              scope={isAdmin || isFinance ? "everything" : "desk"}
+              showFilters
+              refreshKey={refreshKey}
+              title="All Claims"
+              subtitle="Every claim you oversee, newest first. Filter by department, stage or person."
+              onOpen={(requestId) => setView({ name: "detail", requestId })}
+            />
+          )}
+
+          {view.name === "admin" && <AdminConfig />}
+
+          {view.name === "detail" && (
+            <RequestDetail
+              requestId={(view as { requestId: string }).requestId}
+              user={user}
+              policy={policy}
+              onBack={() => setView({ name: workspace === "self" ? "dashboard" : "desk" })}
+              onEdit={(draft, requestId) => {
+                setWorkspace("self");
+                setView({ name: "new", editing: { draft, requestId } });
+              }}
+              onChanged={() => {
+                refresh();
+                api.requests("mine").then((r) => setInbox(r.inbox)).catch(() => {});
+              }}
+            />
+          )}
+        </main>
+
+        {/* Phone tab bar */}
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+          {mobileNav.map(({ key, short, icon: Icon, badge }) => (
+            <button
+              key={key}
+              onClick={() => go(key)}
+              className={`relative flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition ${
+                view.name === key ? "text-brand-700" : "text-slate-500"
+              }`}
+            >
+              <Icon size={18} />
+              {short}
+              {badge ? (
+                <span className="absolute right-1/4 top-1.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white">
+                  {badge}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+}

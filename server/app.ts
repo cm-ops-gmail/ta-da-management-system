@@ -1,0 +1,885 @@
+/**
+ * TA & Per-Diem Management System — the API, as a plain Express app.
+ *
+ * Deliberately knows nothing about how it is served: `server.ts` wraps it with
+ * Vite for local development, and `api/index.ts` exports it as a Vercel
+ * serverless function. Keeping Vite out of this file keeps it out of the
+ * serverless bundle.
+ */
+
+import "dotenv/config";
+import express, { type NextFunction, type Request, type Response } from "express";
+
+import {
+  apiCalls, appendRow, getHeaders, readTab, readTabs, replaceTabRows, resetApiCalls, updateRow,
+  withSheetLock, type Row,
+} from "./sheets.js";
+import { hasRole, signToken, verifyToken, type Session } from "./auth.js";
+import {
+  allEmployees, deptHeadIdFor, fromRequest, invalidateEmployees, invalidatePolicy, loadPolicy,
+  managesOthers, nextRequestId, nowISO, parseLinks, STAGE_COLUMN, toApprovalRow, toRequest,
+  upsertApproval,
+} from "./store.js";
+import { addBusinessDays, cfgNum, cfgStr, computeRequest, eligibleModes, fuelRateFor } from "../shared/policy.js";
+import type { RequestDraft, RequestRecord, Status } from "../shared/types.js";
+
+const app = express();
+app.use(express.json({ limit: "2mb" }));
+
+// ── Auth plumbing ───────────────────────────────────────────────────────────
+
+interface AuthedRequest extends Request {
+  session: Session;
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+  const session = verifyToken(header?.startsWith("Bearer ") ? header.slice(7) : undefined);
+  if (!session) {
+    res.status(401).json({ error: "Please sign in again." });
+    return;
+  }
+  (req as AuthedRequest).session = session;
+  next();
+}
+
+/** Wraps an async handler so a rejected promise becomes a 500 instead of a hang. */
+function handler(fn: (req: AuthedRequest, res: Response) => Promise<void>) {
+  return (req: Request, res: Response) => {
+    fn(req as AuthedRequest, res).catch((err: Error) => {
+      console.error(`[${req.method} ${req.path}]`, err);
+      if (!res.headersSent) res.status(500).json({ error: err.message || "Something went wrong." });
+    });
+  };
+}
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+
+app.post("/api/login", handler(async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password ?? "");
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password are required." });
+    return;
+  }
+
+  const employee = (await allEmployees()).find(
+    (e) => e.email.toLowerCase() === email && e.password === password,
+  );
+  if (!employee) {
+    res.status(401).json({ error: "Wrong email or password." });
+    return;
+  }
+  if (employee.status !== "Active") {
+    res.status(403).json({ error: "This account is inactive. Contact PeopleOps." });
+    return;
+  }
+
+  const { password: _pw, status: _st, _row, ...user } = employee;
+  // Being a line manager is derived from the roster, never stored as a role.
+  const withHierarchy = { ...user, managesOthers: await managesOthers(user.employeeId) };
+  res.json({ token: signToken(user), user: withHierarchy });
+}));
+
+app.get("/api/me", requireAuth, handler(async (req, res) => {
+  const { expiresAt, ...user } = req.session;
+  // Recomputed rather than read from the token, so a hierarchy change in the
+  // sheet takes effect without the user signing out and back in.
+  res.json({ user: { ...user, managesOthers: await managesOthers(user.employeeId) } });
+}));
+
+// ── Reference data ──────────────────────────────────────────────────────────
+
+app.get("/api/policy", requireAuth, handler(async (_req, res) => {
+  res.json(await loadPolicy());
+}));
+
+/** Employee lookup for the team-member picker: search by ID or name. */
+app.get("/api/employees", requireAuth, handler(async (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase();
+  const rows = (await allEmployees()).filter((e) => e.status === "Active");
+  const matched = q
+    ? rows.filter((e) =>
+        e.employeeId.toLowerCase().includes(q) ||
+        e.name.toLowerCase().includes(q) ||
+        e.email.toLowerCase().includes(q))
+    : rows;
+  res.json({
+    employees: matched.slice(0, 25).map((e) => ({
+      employeeId: e.employeeId,
+      name: e.name,
+      email: e.email,
+      department: e.department,
+      designation: e.designation,
+      band: e.band,
+      gender: e.gender,
+    })),
+  });
+}));
+
+// ── Visibility and stage ownership ──────────────────────────────────────────
+
+/**
+ * What a user may see. Employees see their own requests plus anything they are
+ * a team member on; approvers additionally see everything at their desk, and
+ * Admin/Finance/HR see the whole pipeline for reporting.
+ */
+function canView(session: Session, req: RequestRecord): boolean {
+  if (req.employeeId === session.employeeId) return true;
+  if (req.teamMembers.some((m) => m.employeeId === session.employeeId)) return true;
+  if (hasRole(session, "admin", "finance", "hr")) return true;
+  // Line-manager access is decided by the request's ManagerID — which came from
+  // the requester's LineManagerID — not by any role in the sheet.
+  if (req.managerId === session.employeeId) return true;
+  return false;
+}
+
+function canActOn(session: Session, req: RequestRecord): boolean {
+  switch (req.status) {
+    // A line manager acts only on their own reports; Administration can unblock.
+    case "manager_review":
+      return req.managerId === session.employeeId || hasRole(session, "admin");
+    case "admin_review":
+      return hasRole(session, "admin");
+    case "finance_review":
+    case "payment_processing":
+      return hasRole(session, "finance");
+    default:
+      return false;
+  }
+}
+
+/**
+ * Request lists are split into two worlds so an approver never sees their own
+ * claims mixed in with the ones they are deciding on:
+ *   `mine*`  — claims the signed-in person raised
+ *   `desk*`  — other people's claims their role is responsible for
+ */
+app.get("/api/requests", requireAuth, handler(async (req, res) => {
+  const tabs = await readTabs(["Requests", "Approvals"]);
+  const all = tabs.Requests.map(toRequest);
+  const me = req.session.employeeId;
+  const myEmail = req.session.email.toLowerCase();
+  const visible = all.filter((r) => canView(req.session, r));
+  const scope = String(req.query.scope || "all");
+
+  const isMine = (r: RequestRecord) => r.employeeId === me;
+  const settled = (r: RequestRecord) => ["payment_processing", "paid", "completed"].includes(r.status);
+
+  // Requests this user has personally decided on, read off the Approvals row.
+  const actedOn = new Set(
+    tabs.Approvals
+      .filter((a) => ["ManagerBy", "AdminBy", "FinanceBy", "PaymentBy", "AdvanceHRBy", "AdvanceDeptHeadBy"]
+        .some((c) => String(a[c] || "").toLowerCase().includes(myEmail)))
+      .map((a) => a.RequestID),
+  );
+
+  const filtered = visible.filter((r) => {
+    switch (scope) {
+      // The oversight register: literally everything this person may see,
+      // their own claims included, so Admin/Finance/HR get a complete list.
+      case "everything": return true;
+      case "mine": return isMine(r);
+      case "mine_advance": return isMine(r) && r.advanceRequested > 0;
+      case "mine_payments": return isMine(r) && settled(r);
+      case "pending": return canActOn(req.session, r);
+      case "processed": return !isMine(r) && actedOn.has(r.requestId);
+      case "desk": return !isMine(r);
+      case "desk_advance": return !isMine(r) && r.advanceRequested > 0;
+      case "desk_payments": return !isMine(r) && settled(r);
+      default: return true;
+    }
+  });
+
+  const deskRows = visible.filter((r) => !isMine(r));
+  const pending = deskRows.filter((r) => canActOn(req.session, r));
+
+  // Whose desk each claim is sitting on, plus the last thing that happened to
+  // it — so a register row explains itself without opening the claim.
+  const approvalByRequest = new Map(tabs.Approvals.map((a) => [a.RequestID, a]));
+  const WAITING: Record<string, string> = {
+    manager_review: "Line Manager",
+    admin_review: "Administration",
+    finance_review: "Finance",
+    payment_processing: "Finance — payment",
+    paid: "Advance settlement",
+    returned: "Employee — correction needed",
+    draft: "Employee — not submitted",
+  };
+  const decorate = (r: RequestRecord) => {
+    const a = approvalByRequest.get(r.requestId);
+    return {
+      ...r,
+      isMine: isMine(r),
+      waitingOn: WAITING[r.status] || "",
+      lastAction: a?.LastAction || "",
+      lastActionAt: a?.LastActionAt || "",
+    };
+  };
+
+  res.json({
+    requests: filtered
+      // Newest first: submitted time when it exists, creation time otherwise.
+      .sort((a, b) => (b.submittedAt || b.createdAt || "").localeCompare(a.submittedAt || a.createdAt || ""))
+      .map(decorate),
+    // Personal cards always describe only the signed-in employee's own claims.
+    summary: summarise(all.filter(isMine)),
+    inbox: pending.length,
+    desk: {
+      pending: pending.length,
+      pendingValue: pending.reduce((s, r) => s + r.finalPayable, 0),
+      processed: deskRows.filter((r) => actedOn.has(r.requestId)).length,
+      inFlight: deskRows.filter((r) => ["manager_review", "admin_review", "finance_review"].includes(r.status)).length,
+      awaitingPayment: deskRows.filter((r) => r.status === "payment_processing").length,
+      advancesOpen: deskRows.filter((r) => r.advanceRequested > 0 && !r.settledAt).length,
+      totalValue: deskRows.reduce((s, r) => s + r.totalClaim, 0),
+      count: deskRows.length,
+    },
+  });
+}));
+
+function summarise(rows: RequestRecord[]) {
+  const inFlight: Status[] = ["manager_review", "admin_review", "finance_review"];
+  return {
+    pending: rows.filter((r) => inFlight.includes(r.status)).length,
+    approved: rows.filter((r) => ["payment_processing", "paid", "completed"].includes(r.status)).length,
+    rejected: rows.filter((r) => r.status === "rejected").length,
+    returned: rows.filter((r) => r.status === "returned").length,
+    paymentPending: rows.filter((r) => r.status === "payment_processing").length,
+    paid: rows.filter((r) => ["paid", "completed"].includes(r.status)).length,
+    totalClaims: rows.reduce((s, r) => s + r.totalClaim, 0),
+    totalPaid: rows
+      .filter((r) => ["paid", "completed"].includes(r.status))
+      .reduce((s, r) => s + r.finalPayable, 0),
+    count: rows.length,
+  };
+}
+
+app.get("/api/requests/:id", requireAuth, handler(async (req, res) => {
+  const tabs = await readTabs(["Requests", "Approvals"]);
+  const row = tabs.Requests.find((r) => r.RequestID === req.params.id);
+  if (!row) {
+    res.status(404).json({ error: "Request not found." });
+    return;
+  }
+  const record = toRequest(row);
+  if (!canView(req.session, record)) {
+    res.status(403).json({ error: "You do not have access to this request." });
+    return;
+  }
+  const approvalRow = tabs.Approvals.find((a) => a.RequestID === record.requestId);
+
+  res.json({
+    request: record,
+    approval: approvalRow ? toApprovalRow(approvalRow) : null,
+    canAct: canActOn(req.session, record),
+    canEdit: record.employeeId === req.session.employeeId && ["draft", "returned"].includes(record.status),
+    advanceStep: await advanceStepFor(req.session, record),
+  });
+}));
+
+// ── Live policy preview (no writes) ─────────────────────────────────────────
+
+app.post("/api/requests/preview", requireAuth, handler(async (req, res) => {
+  const policy = await loadPolicy();
+  const draft = normaliseDraft(req.body?.draft);
+  res.json({
+    computation: computeRequest(policy, draft, req.session),
+    modes: eligibleModes(policy, {
+      band: req.session.band,
+      gender: req.session.gender,
+      scope: draft.scope,
+      travelType: draft.travelType,
+      teamSize: draft.travelType === "team" ? draft.teamMembers.length + 1 : 1,
+      carSpecialApproval: draft.carSpecialApproval,
+    }),
+  });
+}));
+
+/** Fills in every field so a partial payload from the client can't throw. */
+function normaliseDraft(raw: unknown): RequestDraft {
+  const d = (raw ?? {}) as Partial<RequestDraft>;
+  const n = (v: unknown) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
+  return {
+    requestId: d.requestId || "",
+    scope: d.scope === "outside" ? "outside" : "inside",
+    city: d.city || "",
+    claimType: (["ta", "perdiem", "both"].includes(String(d.claimType)) ? d.claimType : "both") as RequestDraft["claimType"],
+    travelType: d.travelType === "team" ? "team" : "individual",
+    teamMembers: Array.isArray(d.teamMembers) ? d.teamMembers : [],
+    fromDate: d.fromDate || "",
+    toDate: d.toDate || d.fromDate || "",
+    purpose: d.purpose || "",
+    destination: d.destination || "",
+    startTime: d.startTime || "",
+    endTime: d.endTime || "",
+    workedAt: d.workedAt || "",
+    arrangement: d.arrangement === "company" ? "company" : "self",
+    transportMode: d.transportMode || "",
+    vehicleType: d.vehicleType || "",
+    carSpecialApproval: !!d.carSpecialApproval,
+    travelFrom: d.travelFrom || "",
+    travelTo: d.travelTo || "",
+    totalKM: n(d.totalKM),
+    legs: (Array.isArray(d.legs) ? d.legs : []).map((l) => ({
+      travelDate: l.travelDate || "",
+      mode: l.mode || "",
+      travelFrom: l.travelFrom || "",
+      travelTo: l.travelTo || "",
+      amount: n(l.amount),
+      note: l.note || "",
+    })),
+    workedDuringLunch: !!d.workedDuringLunch,
+    officeMealTaken: !!d.officeMealTaken,
+    dualWorkstation: !!d.dualWorkstation,
+    dualWorkstationType: d.dualWorkstationType || "",
+    hotelName: d.hotelName || "",
+    checkIn: d.checkIn || "",
+    checkOut: d.checkOut || "",
+    accommodationAmount: n(d.accommodationAmount),
+    rentACarAmount: n(d.rentACarAmount),
+    rentACarHeadcount: n(d.rentACarHeadcount),
+    flightAmount: n(d.flightAmount),
+    otherAmount: n(d.otherAmount),
+    otherNote: d.otherNote || "",
+    advanceRequested: n(d.advanceRequested),
+    documentTypes: Array.isArray(d.documentTypes) ? d.documentTypes.filter(Boolean) : [],
+    documentLinks: parseLinks(d.documentLinks),
+    employeeNote: d.employeeNote || "",
+  };
+}
+
+/** Builds the full request record from a draft plus the computed amounts. */
+function buildRecord(
+  draft: RequestDraft,
+  computation: ReturnType<typeof computeRequest>,
+  session: Session,
+  policy: Awaited<ReturnType<typeof loadPolicy>>,
+  base: Partial<RequestRecord> & { requestId: string; createdAt: string },
+): RequestRecord {
+  return {
+    requestId: base.requestId,
+    createdAt: base.createdAt,
+    updatedAt: nowISO(),
+    status: base.status ?? "draft",
+    employeeId: base.employeeId ?? session.employeeId,
+    employeeName: base.employeeName ?? session.name,
+    email: base.email ?? session.email,
+    band: base.band ?? session.band,
+    department: base.department ?? session.department,
+    designation: base.designation ?? session.designation,
+    scope: draft.scope,
+    city: draft.city,
+    claimType: draft.claimType,
+    travelType: draft.travelType,
+    teamSize: draft.travelType === "team" ? draft.teamMembers.length + 1 : 1,
+    teamMembers: draft.travelType === "team" ? draft.teamMembers : [],
+    fromDate: draft.fromDate,
+    toDate: draft.toDate || draft.fromDate,
+    tripDays: computation.tripDays,
+    purpose: draft.purpose,
+    destination: draft.destination,
+    startTime: draft.startTime,
+    endTime: draft.endTime,
+    workingHours: computation.workingHours,
+    workedAt: draft.workedAt,
+    arrangement: draft.arrangement,
+    transportMode: draft.transportMode,
+    vehicleType: draft.vehicleType,
+    carSpecialApproval: draft.carSpecialApproval,
+    travelFrom: draft.travelFrom,
+    travelTo: draft.travelTo,
+    totalKM: draft.totalKM,
+    fuelRate: draft.transportMode === "PersonalVehicle" ? fuelRateFor(policy, draft.vehicleType) : 0,
+    legs: draft.legs,
+    taAmount: computation.taAmount,
+    perDiemDays: computation.perDiemDays,
+    perDiemAmount: computation.perDiemAmount,
+    lunchAllowance: computation.lunchAllowance,
+    workedDuringLunch: draft.workedDuringLunch,
+    officeMealTaken: draft.dualWorkstation ? true : draft.officeMealTaken,
+    dualWorkstation: draft.dualWorkstation,
+    dualWorkstationType: draft.dualWorkstationType,
+    hotelName: draft.hotelName,
+    checkIn: draft.checkIn,
+    checkOut: draft.checkOut,
+    accommodationAmount: computation.accommodationAmount,
+    rentACarAmount: computation.rentACarAmount,
+    rentACarHeadcount: draft.rentACarHeadcount,
+    flightAmount: computation.flightAmount,
+    otherAmount: computation.otherAmount,
+    otherNote: draft.otherNote,
+    totalClaim: computation.totalClaim,
+    advanceRequested: computation.advanceRequested,
+    advanceApproved: base.advanceApproved ?? 0,
+    advanceStatus: computation.advanceRequested > 0 ? (base.advanceStatus || "pending") : "",
+    settlementDueDate: computation.advanceRequested > 0
+      ? addBusinessDays(draft.toDate || draft.fromDate, cfgNum(policy, "ADVANCE_SETTLEMENT_DAYS", 3))
+      : "",
+    settledAmount: base.settledAmount ?? 0,
+    settledAt: base.settledAt ?? "",
+    finalPayable: computation.finalPayable,
+    managerId: base.managerId ?? "",
+    managerEmail: base.managerEmail ?? "",
+    submittedAt: base.submittedAt ?? "",
+    completedAt: base.completedAt ?? "",
+    documentTypes: draft.documentTypes,
+    documentLinks: draft.documentLinks,
+    policyNotes: computation.notes.join(" | "),
+    employeeNote: draft.employeeNote,
+    paymentMode: base.paymentMode ?? "",
+    transactionId: base.transactionId ?? "",
+    paymentDate: base.paymentDate ?? "",
+    paidAmount: base.paidAmount ?? 0,
+    paidBy: base.paidBy ?? "",
+  };
+}
+
+// ── Create / update a request ───────────────────────────────────────────────
+
+app.post("/api/requests", requireAuth, handler(async (req, res) => {
+  const policy = await loadPolicy();
+  const draft = normaliseDraft(req.body?.draft);
+  const submit = req.body?.submit !== false;
+  const computation = computeRequest(policy, draft, req.session);
+
+  if (submit && computation.errors.length) {
+    res.status(400).json({ error: computation.errors[0], computation });
+    return;
+  }
+
+  const manager = (await allEmployees()).find((e) => e.employeeId === req.session.lineManagerId);
+  const now = nowISO();
+
+  // Allocating the request number and writing the row must be atomic: two
+  // people submitting at the same instant would otherwise read the same
+  // highest number and both be issued it.
+  const record = await withSheetLock(async () => {
+    const requestId = await nextRequestId(cfgStr(policy, "REQUEST_ID_PREFIX", "TA"));
+    const built = buildRecord(draft, computation, req.session, policy, {
+      requestId,
+      createdAt: now,
+      status: submit ? "manager_review" : "draft",
+      managerId: manager?.employeeId || "",
+      managerEmail: manager?.email || "",
+      submittedAt: submit ? now : "",
+    });
+    await appendRow("Requests", fromRequest(built));
+    return built;
+  });
+
+  if (submit) await onSubmitted(record, req.session, policy);
+
+  res.json({ request: record, computation });
+}));
+
+app.put("/api/requests/:id", requireAuth, handler(async (req, res) => {
+  const rows = await readTab("Requests");
+  const row = rows.find((r) => r.RequestID === req.params.id);
+  if (!row) {
+    res.status(404).json({ error: "Request not found." });
+    return;
+  }
+  const existing = toRequest(row);
+  if (existing.employeeId !== req.session.employeeId) {
+    res.status(403).json({ error: "You can only edit your own request." });
+    return;
+  }
+  if (!["draft", "returned"].includes(existing.status)) {
+    res.status(400).json({ error: `A request under ${existing.status.replace(/_/g, " ")} can no longer be edited.` });
+    return;
+  }
+
+  const policy = await loadPolicy();
+  const draft = normaliseDraft({ ...req.body?.draft, requestId: existing.requestId });
+  const submit = req.body?.submit !== false;
+  const computation = computeRequest(policy, draft, req.session);
+  if (submit && computation.errors.length) {
+    res.status(400).json({ error: computation.errors[0], computation });
+    return;
+  }
+
+  const updated = buildRecord(draft, computation, req.session, policy, {
+    ...existing,
+    status: submit ? "manager_review" : "draft",
+    submittedAt: submit ? nowISO() : existing.submittedAt,
+  });
+
+  await updateRow("Requests", row._row, fromRequest(updated));
+  if (submit) await onSubmitted(updated, req.session, policy, existing.status === "returned");
+
+  res.json({ request: updated, computation });
+}));
+
+async function onSubmitted(
+  record: RequestRecord,
+  session: Session,
+  policy: Awaited<ReturnType<typeof loadPolicy>>,
+  resubmit = false,
+): Promise<void> {
+  await upsertApproval(
+    record.requestId,
+    record.employeeName,
+    [{ group: "Manager", status: "Pending", by: "", remarks: "" }],
+    {
+      currentStage: "manager_review",
+      lastAction: resubmit ? `Resubmitted by ${session.name}` : `Submitted by ${session.name}`,
+    },
+  );
+
+}
+
+// ── Approve / reject / return ───────────────────────────────────────────────
+
+const NEXT_STATUS: Record<string, Status> = {
+  manager_review: "admin_review",
+  admin_review: "finance_review",
+  finance_review: "payment_processing",
+};
+
+app.post("/api/requests/:id/action", requireAuth, handler(async (req, res) => {
+  const action = String(req.body?.action || "");
+  const remarks = String(req.body?.remarks || "");
+  const rows = await readTab("Requests");
+  const row = rows.find((r) => r.RequestID === req.params.id);
+  if (!row) {
+    res.status(404).json({ error: "Request not found." });
+    return;
+  }
+  const record = toRequest(row);
+  if (!canActOn(req.session, record)) {
+    res.status(403).json({ error: "This request is not at your desk right now." });
+    return;
+  }
+  if (!["approve", "reject", "return", "request_docs"].includes(action)) {
+    res.status(400).json({ error: "Unknown action." });
+    return;
+  }
+  // Payment is a Finance stage too, so a second Finance user could otherwise
+  // "approve" an already-approved claim and overwrite the payment column with
+  // a meaningless entry. Releasing money happens through /payment only.
+  if (record.status === "payment_processing" && action === "approve") {
+    res.status(400).json({
+      error: "This claim is already approved and waiting for payment. Use “Mark paid” to release it.",
+    });
+    return;
+  }
+  if (action !== "approve" && !remarks.trim()) {
+    res.status(400).json({ error: "Please add a remark explaining the decision." });
+    return;
+  }
+
+  const policy = await loadPolicy();
+  const currency = cfgStr(policy, "CURRENCY", "BDT");
+  const stage = record.status;
+  const stageLabel = policy.approvalFlow.find((f) => f.stage === stage)?.label || stage;
+  const group = STAGE_COLUMN[stage];
+
+  let next: Status = record.status;
+  let stageStatus = "";
+  let title = "";
+  let message = "";
+
+  if (action === "approve") {
+    next = NEXT_STATUS[stage] || record.status;
+    stageStatus = "Approved";
+    title = `${record.requestId} approved by ${stageLabel}`;
+    message = `${req.session.name} approved your claim at the ${stageLabel} stage.${remarks ? ` Remark: ${remarks}` : ""}`;
+  } else if (action === "reject") {
+    next = "rejected";
+    stageStatus = "Rejected";
+    title = `${record.requestId} rejected`;
+    message = `${req.session.name} rejected your claim at the ${stageLabel} stage. Reason: ${remarks}`;
+  } else {
+    // "return" and "request_docs" both hand the request back to the employee.
+    next = "returned";
+    stageStatus = action === "request_docs" ? "Documents Requested" : "Returned";
+    title = action === "request_docs"
+      ? `${record.requestId} — more documents needed`
+      : `${record.requestId} returned for correction`;
+    message = `${req.session.name} returned your claim at the ${stageLabel} stage. ${remarks}`;
+  }
+
+  const updated: RequestRecord = {
+    ...record,
+    status: next,
+    updatedAt: nowISO(),
+    advanceStatus: record.advanceRequested > 0 && action === "approve" && stage === "manager_review"
+      ? "manager_approved"
+      : record.advanceStatus,
+  };
+  await updateRow("Requests", row._row, fromRequest(updated));
+
+  // This desk's decision and the next desk's "Pending" go into the same row in
+  // one write.
+  const patches = [{
+    group,
+    status: stageStatus,
+    by: `${req.session.name} <${req.session.email}>`,
+    remarks,
+  }];
+  if (action === "approve" && next !== record.status && STAGE_COLUMN[next]) {
+    patches.push({ group: STAGE_COLUMN[next], status: "Pending", by: "", remarks: "" });
+  }
+  await upsertApproval(record.requestId, record.employeeName, patches, {
+    currentStage: next,
+    lastAction: `${stageStatus} by ${req.session.name}`,
+  });
+
+
+  res.json({ request: updated });
+}));
+
+// ── Finance: payment ────────────────────────────────────────────────────────
+
+app.post("/api/requests/:id/payment", requireAuth, handler(async (req, res) => {
+  if (!hasRole(req.session, "finance")) {
+    res.status(403).json({ error: "Only Finance can record a payment." });
+    return;
+  }
+  const rows = await readTab("Requests");
+  const row = rows.find((r) => r.RequestID === req.params.id);
+  if (!row) {
+    res.status(404).json({ error: "Request not found." });
+    return;
+  }
+  const record = toRequest(row);
+  if (record.status !== "payment_processing") {
+    res.status(400).json({ error: "This request is not ready for payment." });
+    return;
+  }
+
+  const paymentMode = String(req.body?.paymentMode || "");
+  const transactionId = String(req.body?.transactionId || "").trim();
+  const amount = Number(req.body?.amount);
+  const paymentDate = String(req.body?.paymentDate || "").trim() || new Date().toISOString().slice(0, 10);
+  if (!paymentMode) {
+    res.status(400).json({ error: "Choose a payment mode." });
+    return;
+  }
+  if (!transactionId) {
+    res.status(400).json({ error: "Transaction ID is required." });
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: "Enter the amount paid." });
+    return;
+  }
+
+  // A trip that took an advance stays "paid" until the advance is settled;
+  // everything else closes out immediately.
+  const advanceOutstanding = record.advanceRequested > 0 && !record.settledAt;
+
+  const updated: RequestRecord = {
+    ...record,
+    status: advanceOutstanding ? "paid" : "completed",
+    completedAt: advanceOutstanding ? "" : nowISO(),
+    updatedAt: nowISO(),
+    paymentMode,
+    transactionId,
+    paymentDate,
+    paidAmount: amount,
+    paidBy: `${req.session.name} <${req.session.email}>`,
+  };
+  await updateRow("Requests", row._row, fromRequest(updated));
+
+  await upsertApproval(
+    record.requestId,
+    record.employeeName,
+    [{
+      group: "Payment",
+      status: "Paid",
+      by: `${req.session.name} <${req.session.email}>`,
+      remarks: `${paymentMode} · ${transactionId} · ${amount}`,
+    }],
+    { currentStage: updated.status, lastAction: `Paid by ${req.session.name}` },
+  );
+
+
+  res.json({ request: updated });
+}));
+
+/**
+ * Which advance step, if any, this person may take on this request. Keeps the
+ * approval rules on the server: the Department Head is whoever sits one level
+ * above the requester's line manager, so it differs per request.
+ */
+async function advanceStepFor(
+  session: Session,
+  r: RequestRecord,
+): Promise<{ action: string; label: string } | null> {
+  if (!r.advanceRequested || r.settledAt) return null;
+  if (r.advanceStatus === "approved") {
+    return hasRole(session, "finance", "hr") ? { action: "settle", label: "Record settlement" } : null;
+  }
+  if (r.advanceStatus === "awaiting_dept_head") {
+    return session.employeeId === await deptHeadIdFor(r.employeeId)
+      ? { action: "dept_head_approve", label: "Department Head approval" }
+      : null;
+  }
+  if (r.advanceStatus === "manager_approved") {
+    return hasRole(session, "hr") ? { action: "hr_approve", label: "HR approval" } : null;
+  }
+  return null;
+}
+
+// ── Advances (columns on the request row) ───────────────────────────────────
+
+app.get("/api/advances", requireAuth, handler(async (req, res) => {
+  const all = (await readTab("Requests")).map(toRequest).filter((r) => r.advanceRequested > 0);
+  const me = req.session.employeeId;
+  // `desk` is only ever other people's advances, and only for the roles that
+  // sit in the advance chain.
+  const desk = String(req.query.scope || "mine") === "desk";
+  if (desk && !(hasRole(req.session, "hr", "finance", "admin") || await managesOthers(me))) {
+    res.status(403).json({ error: "You do not review advances." });
+    return;
+  }
+  const rows = desk ? all.filter((r) => r.employeeId !== me) : all.filter((r) => r.employeeId === me);
+  // The client should not have to know the approval rules — tell it which step,
+  // if any, this person can take on each advance.
+  const withStep = await Promise.all(
+    rows.map(async (r) => ({ ...r, myStep: await advanceStepFor(req.session, r) })),
+  );
+  res.json({ requests: withStep });
+}));
+
+app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
+  const action = String(req.body?.action || "");
+  const rows = await readTab("Requests");
+  const row = rows.find((r) => r.RequestID === req.params.id);
+  if (!row) {
+    res.status(404).json({ error: "Request not found." });
+    return;
+  }
+  const record = toRequest(row);
+  if (record.advanceRequested <= 0) {
+    res.status(400).json({ error: "This request has no advance." });
+    return;
+  }
+
+  const policy = await loadPolicy();
+  const needsDeptHead = record.advanceRequested > cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000);
+  const stamp = `${req.session.name} <${req.session.email}>`;
+  const updated: RequestRecord = { ...record, updatedAt: nowISO() };
+  let group: "AdvanceHR" | "AdvanceDeptHead" | undefined;
+  let stageStatus = "";
+
+  if (action === "hr_approve") {
+    if (!hasRole(req.session, "hr")) {
+      res.status(403).json({ error: "Only HR can approve at this step." });
+      return;
+    }
+    updated.advanceApproved = Number(req.body?.amount) || record.advanceRequested;
+    updated.advanceStatus = needsDeptHead ? "awaiting_dept_head" : "approved";
+    group = "AdvanceHR";
+    stageStatus = "Approved";
+  } else if (action === "dept_head_approve") {
+    if (req.session.employeeId !== await deptHeadIdFor(record.employeeId)) {
+      res.status(403).json({ error: "Only this employee's Department Head can approve at this step." });
+      return;
+    }
+    updated.advanceApproved = Number(req.body?.amount) || record.advanceApproved || record.advanceRequested;
+    updated.advanceStatus = "approved";
+    group = "AdvanceDeptHead";
+    stageStatus = "Approved";
+  } else if (action === "reject") {
+    const isHead = req.session.employeeId === await deptHeadIdFor(record.employeeId);
+    if (!hasRole(req.session, "hr", "finance") && !isHead) {
+      res.status(403).json({ error: "You cannot reject this advance." });
+      return;
+    }
+    updated.advanceStatus = "rejected";
+    group = record.advanceStatus === "awaiting_dept_head" ? "AdvanceDeptHead" : "AdvanceHR";
+    stageStatus = "Rejected";
+  } else if (action === "settle") {
+    const settled = Number(req.body?.settledAmount);
+    if (!Number.isFinite(settled)) {
+      res.status(400).json({ error: "Enter the settled amount." });
+      return;
+    }
+    updated.settledAmount = settled;
+    updated.settledAt = nowISO();
+    updated.advanceStatus = "settled";
+    // Settling closes out a request that was parked in "paid".
+    if (record.status === "paid") {
+      updated.status = "completed";
+      updated.completedAt = nowISO();
+    }
+    stageStatus = "Settled";
+  } else {
+    res.status(400).json({ error: "Unknown action." });
+    return;
+  }
+
+  await updateRow("Requests", row._row, fromRequest(updated));
+  await upsertApproval(
+    record.requestId,
+    record.employeeName,
+    group ? [{ group, status: stageStatus, by: stamp }] : [],
+    {
+      currentStage: updated.status,
+      lastAction: `Advance ${stageStatus.toLowerCase()} by ${req.session.name}`,
+    },
+  );
+
+
+  res.json({ request: updated });
+}));
+
+// ── Admin configuration ─────────────────────────────────────────────────────
+
+const EDITABLE_TABS = ["Config", "BandPolicy", "Lists", "Employees"];
+
+app.get("/api/admin/tabs", requireAuth, handler(async (req, res) => {
+  if (!hasRole(req.session, "admin", "hr")) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+  const data = await readTabs(EDITABLE_TABS);
+  const headers = Object.fromEntries(
+    await Promise.all(EDITABLE_TABS.map(async (t) => [t, await getHeaders(t)] as const)),
+  );
+  res.json({ tabs: EDITABLE_TABS, headers, data });
+}));
+
+app.post("/api/admin/tabs/:tab", requireAuth, handler(async (req, res) => {
+  if (!hasRole(req.session, "admin", "hr")) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+  const tab = req.params.tab;
+  if (!EDITABLE_TABS.includes(tab)) {
+    res.status(400).json({ error: "That tab is not editable from here." });
+    return;
+  }
+  const rows = Array.isArray(req.body?.rows) ? (req.body.rows as Row[]) : [];
+  await replaceTabRows(tab, rows);
+  invalidatePolicy();
+  invalidateEmployees();
+  res.json({ ok: true, rows: rows.length });
+}));
+
+/**
+ * Sheets API usage since the last reset, for checking headroom against
+ * Google's 300 reads/min and 300 writes/min quotas.
+ */
+app.get("/api/admin/stats", requireAuth, handler(async (req, res) => {
+  if (!hasRole(req.session, "admin", "hr")) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+  if (req.query.reset === "1") resetApiCalls();
+  const seconds = Math.max(1, (Date.now() - apiCalls.since) / 1000);
+  res.json({
+    ...apiCalls,
+    windowSeconds: Math.round(seconds),
+    readsPerMinute: +(apiCalls.reads / (seconds / 60)).toFixed(1),
+    writesPerMinute: +(apiCalls.writes / (seconds / 60)).toFixed(1),
+  });
+}));
+
+export default app;
