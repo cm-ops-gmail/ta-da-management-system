@@ -438,6 +438,45 @@ function buildRecord(
   };
 }
 
+
+/**
+ * Guarantees the request number is unique even across Vercel instances.
+ *
+ * The in-process lock only orders submissions inside one process; serverless
+ * runs many, so two people submitting at the same instant can both read the
+ * same highest number. After the row is written we look again: if someone else
+ * landed on the same number, whoever holds the later sheet row steps aside and
+ * takes a fresh one. Costs one read per submission and nothing else.
+ */
+async function ensureUniqueRequestId(
+  record: RequestRecord,
+  rowNumber: number,
+  prefix: string,
+): Promise<RequestRecord> {
+  if (!rowNumber) return record;
+  const rows = await readTab("Requests");
+  const clashes = rows
+    .filter((r) => r.RequestID === record.requestId)
+    .map((r) => Number(r._row))
+    .sort((a, b) => a - b);
+  if (clashes.length <= 1 || clashes[0] === rowNumber) return record;
+
+  const year = new Date().getFullYear();
+  const highest = rows.reduce((max, r) => {
+    const n = Number(String(r.RequestID || "").split("-")[2]) || 0;
+    return n > max ? n : max;
+  }, 0);
+  // Each loser offsets by its position, so two of them cannot pick the same one.
+  const rank = clashes.indexOf(rowNumber);
+  const fixed: RequestRecord = {
+    ...record,
+    requestId: `${prefix}-${year}-${String(highest + rank).padStart(6, "0")}`,
+  };
+  await updateRow("Requests", rowNumber, fromRequest(fixed));
+  console.warn(`[requests] ${record.requestId} was taken concurrently — reissued as ${fixed.requestId}`);
+  return fixed;
+}
+
 // ── Create / update a request ───────────────────────────────────────────────
 
 app.post("/api/requests", requireAuth, handler(async (req, res) => {
@@ -457,8 +496,9 @@ app.post("/api/requests", requireAuth, handler(async (req, res) => {
   // Allocating the request number and writing the row must be atomic: two
   // people submitting at the same instant would otherwise read the same
   // highest number and both be issued it.
-  const record = await withSheetLock(async () => {
-    const requestId = await nextRequestId(cfgStr(policy, "REQUEST_ID_PREFIX", "TA"));
+  const prefix = cfgStr(policy, "REQUEST_ID_PREFIX", "TA");
+  const written = await withSheetLock(async () => {
+    const requestId = await nextRequestId(prefix);
     const built = buildRecord(draft, computation, req.session, policy, {
       requestId,
       createdAt: now,
@@ -467,9 +507,10 @@ app.post("/api/requests", requireAuth, handler(async (req, res) => {
       managerEmail: manager?.email || "",
       submittedAt: submit ? now : "",
     });
-    await appendRow("Requests", fromRequest(built));
-    return built;
+    const rowNumber = await appendRow("Requests", fromRequest(built));
+    return { built, rowNumber };
   });
+  const record = await ensureUniqueRequestId(written.built, written.rowNumber, prefix);
 
   if (submit) await onSubmitted(record, req.session, policy);
 

@@ -14,7 +14,41 @@ npm run setup     # creates / repairs / migrates the 6 tabs (safe to re-run)
 npm run dev       # http://localhost:3000
 ```
 
-Production: `npm run build && npm start`.
+Production (self-hosted): `npm run build && npm start`.
+
+## Deploying to Vercel
+
+The API is a plain Express app in `server/app.ts` that knows nothing about how
+it is served — `server.ts` wraps it with Vite for local development, and
+`api/index.ts` exports it as a Vercel function, so Vite never ends up in the
+serverless bundle.
+
+1. Import the repo in Vercel. `vercel.json` already sets the build command
+   (`vite build`), the output directory (`dist`) and the rewrites — `/api/*`
+   goes to the function, everything else to the SPA.
+2. Add the three environment variables below under **Settings → Environment
+   Variables** (Production, Preview and Development).
+3. Deploy, then open the app and sign in.
+
+`GOOGLE_PRIVATE_KEY` works whether you paste it with real line breaks or with
+literal `\n` — the server normalises both.
+
+### Optional tuning
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SHEETS_READS_PER_MINUTE` | 150 | Pace of Sheets reads, kept under Google's 300/min |
+| `SHEETS_WRITES_PER_MINUTE` | 150 | Same for writes |
+
+### One thing to know about serverless
+
+The rate limiter and the write lock live **inside one process**. Vercel runs
+several instances under load, so they do not coordinate. Two protections cover
+this: request numbers are re-checked against the sheet after writing and
+reissued if another instance took the same one, and the retry/backoff handles
+any quota rejection. At ~50 claims a day this is comfortable. If you ever push
+far past that, move `Requests` to a real database and keep the sheet as a
+mirror — nothing else in the design would change.
 
 Credentials come from `.env` (generated from `test.md`): `GOOGLE_CLIENT_EMAIL`,
 `GOOGLE_PRIVATE_KEY`, `SPREADSHEET_ID`.

@@ -215,15 +215,19 @@ function project(headers: string[], record: Row): string[] {
   });
 }
 
-export async function appendRow(tab: string, record: Row): Promise<void> {
+/** Appends a row and returns the sheet row number it landed on (0 if unknown). */
+export async function appendRow(tab: string, record: Row): Promise<number> {
   const headers = await getHeaders(tab);
-  await retry(() => sheetsClient().spreadsheets.values.append({
+  const res = await retry(() => sheetsClient().spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
     range: `${quote(tab)}!A:${colLetter(headers.length - 1)}`,
     valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [project(headers, record)] },
   }), 8, "write");
+  // updatedRange looks like 'Requests'!A42:BZ42 — the row is what we need.
+  const match = /![A-Z]+(\d+)/.exec(res.data.updates?.updatedRange || "");
+  return match ? Number(match[1]) : 0;
 }
 
 export async function appendRows(tab: string, records: Row[]): Promise<void> {
