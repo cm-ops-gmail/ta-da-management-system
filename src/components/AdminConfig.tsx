@@ -71,12 +71,12 @@ export default function AdminConfig() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
         {tabs.map((t) => (
           <button
             key={t}
             onClick={() => { setActive(t); setMessage(""); setError(""); }}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold transition ${
               active === t ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
             }`}
           >
@@ -110,12 +110,45 @@ export default function AdminConfig() {
         {message && <div className="mb-4"><Notice tone="info" items={[message]} /></div>}
         {error && <div className="mb-4"><Notice tone="error" items={[error]} /></div>}
 
-        <div className="-mx-1 overflow-x-auto px-1">
+        {/* Phones: a card per row with labelled fields. A 13-column table on a
+            360px screen is unusable, however much you let it scroll. */}
+        <div className="space-y-3 md:hidden">
+          {rows.map((row, i) => (
+            <div key={i} className="rounded-xl border border-slate-200 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="truncate text-xs font-bold text-slate-700">
+                  {row[cols[0]] || `Row ${i + 1}`}
+                </span>
+                <button
+                  onClick={() => setData((d) => ({ ...d, [active]: (d[active] || []).filter((_, idx) => idx !== i) }))}
+                  className="shrink-0 rounded-lg p-2 text-slate-400 active:bg-rose-50 active:text-rose-600"
+                  aria-label="Delete row"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <div className="space-y-2">
+                {cols.map((c) => (
+                  <label key={c} className="block">
+                    <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">{c}</span>
+                    <input
+                      className="field"
+                      value={row[c] ?? ""}
+                      onChange={(e) => edit(i, c, e.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="-mx-1 hidden overflow-x-auto px-1 md:block">
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 {cols.map((c) => (
-                  <th key={c} className="px-2 py-2 font-semibold whitespace-nowrap">{c}</th>
+                  <th key={c} className="whitespace-nowrap px-2 py-2 font-semibold">{c}</th>
                 ))}
                 <th className="px-2 py-2" />
               </tr>
@@ -126,7 +159,7 @@ export default function AdminConfig() {
                   {cols.map((c) => (
                     <td key={c} className="px-1 py-1">
                       <input
-                        className="field !px-2 !py-1.5 text-xs"
+                        className="field !px-2 !py-1.5 !text-xs"
                         value={row[c] ?? ""}
                         onChange={(e) => edit(i, c, e.target.value)}
                       />

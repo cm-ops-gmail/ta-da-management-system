@@ -85,14 +85,14 @@ export default function RequestDetail({
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full gap-2 sm:w-auto">
           {detail.canEdit && (
-            <button className="btn-ghost" onClick={() => onEdit(toDraft(r), r.requestId)}>
+            <button className="btn-ghost flex-1 sm:flex-none" onClick={() => onEdit(toDraft(r), r.requestId)}>
               <Pencil size={16} /> Edit & resubmit
             </button>
           )}
           {detail.canAct && r.status === "payment_processing" && (
-            <button className="btn-success" onClick={() => setPaying(true)}>
+            <button className="btn-success flex-1 sm:flex-none" onClick={() => setPaying(true)}>
               <Banknote size={16} /> Mark paid
             </button>
           )}
@@ -192,8 +192,24 @@ export default function RequestDetail({
 
           {r.legs.length > 0 && (
             <Card title="Trips claimed">
-              <div className="-mx-1 overflow-x-auto px-1">
-                <table className="w-full min-w-[34rem] text-sm">
+              <ul className="space-y-2 sm:hidden">
+                {r.legs.map((l, i) => (
+                  <li key={i} className="rounded-xl border border-slate-200 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-800">{l.travelFrom} → {l.travelTo}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{l.travelDate} · {l.mode}</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-bold text-slate-800">
+                        <Money value={l.amount} currency={currency} />
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden overflow-x-auto sm:block">
+                <table className="w-full text-sm">
                   <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="py-2 pr-3 font-semibold">Date</th>
@@ -249,65 +265,57 @@ export default function RequestDetail({
             {!a ? (
               <Empty title="Nothing logged yet" />
             ) : (
-              <div className="-mx-1 overflow-x-auto px-1">
-                <table className="w-full min-w-[34rem] text-sm">
-                  <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="py-2 pr-3 font-semibold">Stage</th>
-                      <th className="py-2 pr-3 font-semibold">Status</th>
-                      <th className="py-2 pr-3 font-semibold">By</th>
-                      <th className="py-2 pr-3 font-semibold">When</th>
-                      <th className="py-2 font-semibold">Remarks</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    <tr>
-                      <td className="py-2 pr-3 font-medium text-slate-700">Submitted</td>
-                      <td className="py-2 pr-3 text-slate-600">Submitted</td>
-                      <td className="py-2 pr-3 text-slate-600">{r.employeeName}</td>
-                      <td className="py-2 pr-3 text-slate-500">{a.submittedAt ? new Date(a.submittedAt).toLocaleString() : "—"}</td>
-                      <td className="py-2 text-slate-600">{a.submittedRemarks || "—"}</td>
-                    </tr>
-                    {TRACK_STAGES.map((s) => {
-                      const k = s.column.toLowerCase();
-                      const status = a[`${k}Status` as keyof ApprovalRow] as string;
-                      return (
-                        <tr key={s.key}>
-                          <td className="py-2 pr-3 font-medium text-slate-700">{s.label}</td>
-                          <td className="py-2 pr-3 text-slate-600">{status || "—"}</td>
-                          <td className="py-2 pr-3 text-slate-600">
-                            {String(a[`${k}By` as keyof ApprovalRow] || "—").replace(/<.*>/, "").trim() || "—"}
-                          </td>
-                          <td className="py-2 pr-3 text-slate-500">
-                            {a[`${k}At` as keyof ApprovalRow]
-                              ? new Date(String(a[`${k}At` as keyof ApprovalRow])).toLocaleString()
-                              : "—"}
-                          </td>
-                          <td className="py-2 text-slate-600">{String(a[`${k}Remarks` as keyof ApprovalRow] || "—")}</td>
+              <>
+                {/* Phones: a block per desk instead of a five-column table. */}
+                <ul className="space-y-2 md:hidden">
+                  {trailRows(a, r).map((t) => (
+                    <li key={t.stage} className="rounded-xl border border-slate-200 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-slate-800">{t.stage}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          ["Approved", "Paid", "Submitted", "Settled"].includes(t.status)
+                            ? "bg-emerald-50 text-emerald-700"
+                            : t.status === "—"
+                              ? "bg-slate-100 text-slate-400"
+                              : "bg-amber-50 text-amber-700"
+                        }`}>
+                          {t.status}
+                        </span>
+                      </div>
+                      {t.by !== "—" && <p className="mt-1 text-xs text-slate-600">{t.by}</p>}
+                      {t.at !== "—" && <p className="text-xs text-slate-400">{t.at}</p>}
+                      {t.remarks !== "—" && (
+                        <p className="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{t.remarks}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="hidden overflow-x-auto md:block">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="py-2 pr-3 font-semibold">Stage</th>
+                        <th className="py-2 pr-3 font-semibold">Status</th>
+                        <th className="py-2 pr-3 font-semibold">By</th>
+                        <th className="py-2 pr-3 font-semibold">When</th>
+                        <th className="py-2 font-semibold">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {trailRows(a, r).map((t) => (
+                        <tr key={t.stage}>
+                          <td className="py-2 pr-3 font-medium text-slate-700">{t.stage}</td>
+                          <td className="py-2 pr-3 text-slate-600">{t.status}</td>
+                          <td className="py-2 pr-3 text-slate-600">{t.by}</td>
+                          <td className="py-2 pr-3 text-slate-500">{t.at}</td>
+                          <td className="py-2 text-slate-600">{t.remarks}</td>
                         </tr>
-                      );
-                    })}
-                    {r.advanceRequested > 0 && (
-                      <>
-                        <tr>
-                          <td className="py-2 pr-3 font-medium text-slate-700">Advance · HR</td>
-                          <td className="py-2 pr-3 text-slate-600">{a.advanceHRStatus || "—"}</td>
-                          <td className="py-2 pr-3 text-slate-600">{a.advanceHRBy?.replace(/<.*>/, "").trim() || "—"}</td>
-                          <td className="py-2 pr-3 text-slate-500">{a.advanceHRAt ? new Date(a.advanceHRAt).toLocaleString() : "—"}</td>
-                          <td className="py-2 text-slate-600">—</td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 pr-3 font-medium text-slate-700">Advance · Dept Head</td>
-                          <td className="py-2 pr-3 text-slate-600">{a.advanceDeptHeadStatus || "—"}</td>
-                          <td className="py-2 pr-3 text-slate-600">{a.advanceDeptHeadBy?.replace(/<.*>/, "").trim() || "—"}</td>
-                          <td className="py-2 pr-3 text-slate-500">{a.advanceDeptHeadAt ? new Date(a.advanceDeptHeadAt).toLocaleString() : "—"}</td>
-                          <td className="py-2 text-slate-600">—</td>
-                        </tr>
-                      </>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </Card>
         </div>
@@ -450,6 +458,38 @@ export default function RequestDetail({
       )}
     </div>
   );
+}
+
+/** The approval trail as plain rows, used by both the phone and table views. */
+function trailRows(a: ApprovalRow, r: Detail["request"]) {
+  const person = (v?: string) => String(v || "").replace(/<.*>/, "").trim() || "—";
+  const when = (v?: string) => (v ? new Date(v).toLocaleString() : "—");
+  const rows = [
+    {
+      stage: "Submitted",
+      status: a.submittedAt ? "Submitted" : "—",
+      by: r.employeeName,
+      at: when(a.submittedAt),
+      remarks: a.submittedRemarks || "—",
+    },
+    ...TRACK_STAGES.map((s) => {
+      const k = s.column.toLowerCase();
+      return {
+        stage: s.label,
+        status: (a[`${k}Status` as keyof ApprovalRow] as string) || "—",
+        by: person(a[`${k}By` as keyof ApprovalRow] as string),
+        at: when(a[`${k}At` as keyof ApprovalRow] as string),
+        remarks: (a[`${k}Remarks` as keyof ApprovalRow] as string) || "—",
+      };
+    }),
+  ];
+  if (r.advanceRequested > 0) {
+    rows.push(
+      { stage: "Advance · HR", status: a.advanceHRStatus || "—", by: person(a.advanceHRBy), at: when(a.advanceHRAt), remarks: "—" },
+      { stage: "Advance · Dept Head", status: a.advanceDeptHeadStatus || "—", by: person(a.advanceDeptHeadBy), at: when(a.advanceDeptHeadAt), remarks: "—" },
+    );
+  }
+  return rows;
 }
 
 function lastRemark(a: ApprovalRow | null): string {

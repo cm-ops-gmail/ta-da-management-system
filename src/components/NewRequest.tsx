@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, Check, Link as LinkIcon, Loader2, Plus, Send, Trash2, Users,
+  ArrowLeft, ArrowRight, Check, ChevronDown, Link as LinkIcon, Loader2, Plus, Send, Trash2, Users,
 } from "lucide-react";
 import { api } from "../api.js";
 import {
@@ -110,25 +110,25 @@ export default function NewRequest({
 
           {error && <Notice tone="error" items={[error]} />}
 
-          <div className="sticky bottom-16 z-10 -mx-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-100/95 px-3 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 lg:bottom-0">
+          <div className="sticky bottom-[4.25rem] z-10 -mx-3 flex items-center gap-2 border-t border-slate-200 bg-slate-100/95 px-3 py-3 backdrop-blur sm:static sm:mx-0 sm:justify-between sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 lg:bottom-0">
             <button
-              className="btn-ghost"
+              className="btn-ghost shrink-0 !px-3 sm:!px-4"
               onClick={() => setStep((s) => Math.max(0, s - 1))}
               disabled={step === 0}
             >
-              <ArrowLeft size={16} /> Back
+              <ArrowLeft size={16} /> <span className="hidden sm:inline">Back</span>
             </button>
-            <div className="flex gap-2">
-              <button className="btn-ghost" onClick={() => save(false)} disabled={busy}>
+            <div className="flex flex-1 gap-2 sm:flex-none">
+              <button className="btn-ghost flex-1 whitespace-nowrap sm:flex-none" onClick={() => save(false)} disabled={busy}>
                 Save draft
               </button>
               {step < STEPS.length - 1 ? (
-                <button className="btn-primary" onClick={() => setStep((s) => s + 1)}>
+                <button className="btn-primary flex-1 sm:flex-none" onClick={() => setStep((s) => s + 1)}>
                   Next <ArrowRight size={16} />
                 </button>
               ) : (
                 <button
-                  className="btn-primary"
+                  className="btn-primary flex-1 whitespace-nowrap sm:flex-none"
                   onClick={() => save(true)}
                   disabled={busy || computation.errors.length > 0}
                 >
@@ -366,41 +366,64 @@ function TeamPicker({
       )}
 
       {members.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-3 py-2 font-semibold">Employee</th>
-                <th className="px-3 py-2 font-semibold">Department</th>
-                <th className="px-3 py-2 font-semibold">Designation</th>
-                <th className="px-3 py-2 font-semibold">Band</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {members.map((m) => (
-                <tr key={m.employeeId}>
-                  <td className="px-3 py-2">
-                    <span className="font-medium text-slate-800">{m.name}</span>
-                    <span className="ml-2 text-xs text-slate-400">{m.employeeId}</span>
-                  </td>
-                  <td className="px-3 py-2 text-slate-600">{m.department}</td>
-                  <td className="px-3 py-2 text-slate-600">{m.designation}</td>
-                  <td className="px-3 py-2 text-slate-600">{m.band}</td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onChange(members.filter((x) => x.employeeId !== m.employeeId))}
-                      className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </td>
+        <>
+          {/* Phones: a card per member — five columns will not fit. */}
+          <ul className="space-y-2 sm:hidden">
+            {members.map((m) => (
+              <li key={m.employeeId} className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-800">{m.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{m.employeeId} · Band {m.band}</p>
+                  <p className="truncate text-xs text-slate-400">{m.designation} · {m.department}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onChange(members.filter((x) => x.employeeId !== m.employeeId))}
+                  className="shrink-0 rounded-lg p-2 text-slate-400 active:bg-rose-50 active:text-rose-600"
+                  aria-label={`Remove ${m.name}`}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 sm:block">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Employee</th>
+                  <th className="px-3 py-2 font-semibold">Department</th>
+                  <th className="px-3 py-2 font-semibold">Designation</th>
+                  <th className="px-3 py-2 font-semibold">Band</th>
+                  <th className="px-3 py-2" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {members.map((m) => (
+                  <tr key={m.employeeId}>
+                    <td className="px-3 py-2">
+                      <span className="font-medium text-slate-800">{m.name}</span>
+                      <span className="ml-2 text-xs text-slate-400">{m.employeeId}</span>
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{m.department}</td>
+                    <td className="px-3 py-2 text-slate-600">{m.designation}</td>
+                    <td className="px-3 py-2 text-slate-600">{m.band}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => onChange(members.filter((x) => x.employeeId !== m.employeeId))}
+                        className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <p className="flex items-center gap-2 text-xs text-slate-500">
@@ -630,24 +653,37 @@ function LegsEditor({
       ) : (
         <div className="space-y-3">
           {legs.map((leg, i) => (
-            <div key={i} className="grid grid-cols-2 gap-2.5 rounded-xl border border-slate-200 p-3 sm:grid-cols-[9rem_1fr_1fr_8rem_auto] sm:gap-3">
-              <input type="date" className="field" value={leg.travelDate} onChange={(e) => update(i, { travelDate: e.target.value })} />
-              <input className="field" placeholder="From" value={leg.travelFrom} onChange={(e) => update(i, { travelFrom: e.target.value })} />
-              <input className="field" placeholder="To" value={leg.travelTo} onChange={(e) => update(i, { travelTo: e.target.value })} />
-              <input
-                type="number"
-                min={0}
-                className="field"
-                placeholder={currency}
-                value={leg.amount || ""}
-                onChange={(e) => update(i, { amount: Number(e.target.value) })}
-              />
-              <button
-                onClick={() => set({ legs: legs.filter((_, idx) => idx !== i) })}
-                className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-              >
-                <Trash2 size={16} />
-              </button>
+            <div key={i} className="rounded-xl border border-slate-200 p-3">
+              <div className="mb-2 flex items-center justify-between sm:hidden">
+                <span className="text-xs font-bold text-slate-500">Trip {i + 1}</span>
+                <button
+                  onClick={() => set({ legs: legs.filter((_, idx) => idx !== i) })}
+                  className="rounded-lg p-2 text-slate-400 active:bg-rose-50 active:text-rose-600"
+                  aria-label="Remove trip"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-[9rem_1fr_1fr_8rem_auto] sm:items-center sm:gap-3">
+                <input type="date" className="field" value={leg.travelDate} onChange={(e) => update(i, { travelDate: e.target.value })} />
+                <input className="field" placeholder="From" value={leg.travelFrom} onChange={(e) => update(i, { travelFrom: e.target.value })} />
+                <input className="field" placeholder="To" value={leg.travelTo} onChange={(e) => update(i, { travelTo: e.target.value })} />
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  className="field"
+                  placeholder={`Amount (${currency})`}
+                  value={leg.amount || ""}
+                  onChange={(e) => update(i, { amount: Number(e.target.value) })}
+                />
+                <button
+                  onClick={() => set({ legs: legs.filter((_, idx) => idx !== i) })}
+                  className="hidden rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 sm:block"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
           ))}
           <p className="text-right text-sm font-semibold text-slate-700">
@@ -1003,6 +1039,10 @@ function StepDocuments({
 function LiveSummary({
   computation, currency,
 }: { computation: ReturnType<typeof computeRequest>; currency: string }) {
+  // Collapsed by default on phones: the running total stays visible without
+  // pushing the actual form off the screen. Always open from lg up.
+  const [open, setOpen] = useState(false);
+
   const lines: [string, number][] = [
     ["Transportation", computation.taAmount],
     ["Per-Diem", computation.perDiemAmount],
@@ -1012,45 +1052,74 @@ function LiveSummary({
     ["Flight", computation.flightAmount],
     ["Other", computation.otherAmount],
   ];
+  const hasLines = lines.some(([, v]) => v > 0);
 
-  return (
-    <aside className="order-first space-y-4 lg:order-none lg:sticky lg:top-6 lg:self-start">
-      <div className="card overflow-hidden">
-        <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live calculation</p>
-        </div>
-        <div className="space-y-2 px-5 py-4 text-sm">
-          {lines.filter(([, v]) => v > 0).map(([label, value]) => (
-            <div key={label} className="flex justify-between">
-              <span className="text-slate-600">{label}</span>
-              <span className="font-medium text-slate-800"><Money value={value} currency={currency} /></span>
-            </div>
-          ))}
-          {!lines.some(([, v]) => v > 0) && <p className="text-slate-400">Nothing calculated yet.</p>}
-          <div className="mt-3 flex justify-between border-t border-slate-200 pt-3">
-            <span className="font-semibold text-slate-700">Total claim</span>
-            <span className="font-bold text-slate-900"><Money value={computation.totalClaim} currency={currency} /></span>
+  const body = (
+    <>
+      <div className="space-y-2 px-4 py-4 text-sm sm:px-5">
+        {lines.filter(([, v]) => v > 0).map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3">
+            <span className="text-slate-600">{label}</span>
+            <span className="font-medium text-slate-800"><Money value={value} currency={currency} /></span>
           </div>
-          {computation.advanceRequested > 0 && (
-            <>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Less advance</span>
-                <span className="font-medium text-rose-600">
-                  − <Money value={computation.advanceRequested} currency={currency} />
-                </span>
-              </div>
-              <div className="flex justify-between border-t border-slate-200 pt-2">
-                <span className="font-semibold text-slate-700">Final payable</span>
-                <span className="font-bold text-emerald-600"><Money value={computation.finalPayable} currency={currency} /></span>
-              </div>
-            </>
-          )}
+        ))}
+        {!hasLines && <p className="text-slate-400">Nothing calculated yet.</p>}
+        <div className="mt-3 flex justify-between gap-3 border-t border-slate-200 pt-3">
+          <span className="font-semibold text-slate-700">Total claim</span>
+          <span className="font-bold text-slate-900"><Money value={computation.totalClaim} currency={currency} /></span>
         </div>
+        {computation.advanceRequested > 0 && (
+          <>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-600">Less advance</span>
+              <span className="font-medium text-rose-600">
+                − <Money value={computation.advanceRequested} currency={currency} />
+              </span>
+            </div>
+            <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">
+              <span className="font-semibold text-slate-700">Final payable</span>
+              <span className="font-bold text-emerald-600"><Money value={computation.finalPayable} currency={currency} /></span>
+            </div>
+          </>
+        )}
       </div>
 
-      <Notice tone="error" title="Fix before submitting" items={computation.errors} />
-      <Notice tone="warn" title="Needs attention" items={computation.warnings} />
-      <Notice tone="info" title="How this was calculated" items={computation.notes} />
+      <div className="space-y-3 px-4 pb-4 sm:px-5">
+        <Notice tone="error" title="Fix before submitting" items={computation.errors} />
+        <Notice tone="warn" title="Needs attention" items={computation.warnings} />
+        <Notice tone="info" title="How this was calculated" items={computation.notes} />
+      </div>
+    </>
+  );
+
+  return (
+    <aside className="order-first lg:sticky lg:top-6 lg:order-none lg:self-start">
+      <div className="card overflow-hidden">
+        {/* Phone header doubles as the toggle; desktop is a plain title. */}
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-left lg:cursor-default lg:px-5"
+        >
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Live calculation</span>
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-900 lg:hidden">
+              <Money value={computation.totalClaim} currency={currency} />
+            </span>
+            {computation.errors.length > 0 && (
+              <span className="flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white lg:hidden">
+                {computation.errors.length}
+              </span>
+            )}
+            <ChevronDown
+              size={16}
+              className={`text-slate-400 transition-transform lg:hidden ${open ? "rotate-180" : ""}`}
+            />
+          </span>
+        </button>
+
+        <div className={open ? "block" : "hidden lg:block"}>{body}</div>
+      </div>
     </aside>
   );
 }
