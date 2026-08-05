@@ -434,6 +434,16 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
     else notes.push(`Team travel with ${teamSize} travellers.`);
   }
 
+  // ── Where the money goes ──────────────────────────────────────────────────
+  const bkash = String(draft.bkashNumber || "").replace(/[\s-]/g, "");
+  if (finalPayable > 0) {
+    if (!bkash) {
+      errors.push("Enter the bKash number the payment should go to.");
+    } else if (!/^01[3-9]\d{8}$/.test(bkash)) {
+      errors.push("That bKash number does not look right — it should be 11 digits starting 01, e.g. 01712345678.");
+    }
+  }
+
   // ── Document links ────────────────────────────────────────────────────────
   const links = draft.documentLinks.filter(Boolean);
   const malformed = links.filter((l) => !/^https?:\/\/\S+$/i.test(l));
@@ -529,6 +539,7 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     otherAmount: 0,
     otherNote: "",
     advanceRequested: 0,
+    bkashNumber: "",
     documentTypes: [],
     documentLinks: [],
     employeeNote: "",

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Banknote, CheckCheck, FileText, HandCoins, Inbox, LayoutDashboard, ListChecks,
-  LogOut, Menu, Plane, Plus, Settings, ShieldCheck, User, Wallet, X,
+  LogOut, Menu, Plus, Settings, ShieldCheck, User, Wallet, X,
 } from "lucide-react";
-import { api, clearToken, getToken } from "./api.js";
+import { useTenMSAuth } from "@tenminuteschool/auth-admin-react";
+import { api, clearToken, getToken, setToken } from "./api.js";
 import type { Policy, RequestDraft, SessionUser } from "../shared/types.js";
 import Login from "./components/Login.js";
 import Dashboard from "./components/Dashboard.js";
@@ -37,6 +38,7 @@ interface NavItem {
 }
 
 export default function App() {
+  const { user: tenmsUser, loading: authLoading, auth, refresh: refreshSession } = useTenMSAuth();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [booting, setBooting] = useState(true);
@@ -53,18 +55,45 @@ export default function App() {
     if (r) setInbox(r.inbox);
   }, []);
 
+  /**
+   * Restores a session on load. An app token is used directly; otherwise, if
+   * the SDK already has a 10 Minute School session (a returning visit, or a
+   * cross-app handoff the provider just processed), it is silently exchanged
+   * for one. Waits for the provider's own check to settle first so a handoff
+   * in flight is not mistaken for "signed out".
+   */
   useEffect(() => {
-    if (!getToken()) {
-      setBooting(false);
-      return;
-    }
-    api.me()
-      .then(({ user: u }) => bootstrap(u))
-      .catch(() => clearToken())
-      .finally(() => setBooting(false));
-  }, [bootstrap]);
+    if (authLoading) return;
+    let cancelled = false;
 
-  if (booting) return <Spinner label="Starting up…" />;
+    (async () => {
+      try {
+        if (getToken()) {
+          const { user: u } = await api.me();
+          if (!cancelled) await bootstrap(u);
+          return;
+        }
+        if (tenmsUser) {
+          const accessToken = await auth.getAccessToken();
+          if (accessToken) {
+            const { token, user: u } = await api.tenmsLogin(accessToken);
+            if (cancelled) return;
+            setToken(token);
+            await bootstrap(u);
+            return;
+          }
+        }
+      } catch {
+        clearToken();
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [authLoading, tenmsUser, auth, bootstrap]);
+
+  if (booting || authLoading) return <Spinner label="Starting up…" />;
   if (!user) {
     return (
       <Login
@@ -110,6 +139,17 @@ export default function App() {
   };
   const refresh = () => setRefreshKey((k) => k + 1);
 
+  async function signOut() {
+    clearToken();
+    try {
+      await auth.logout();
+    } finally {
+      // The provider does not observe storage on its own.
+      refreshSession();
+      window.location.href = "/";
+    }
+  }
+
   const switchWorkspace = (next: Workspace) => {
     setWorkspace(next);
     setView({ name: next === "self" ? "dashboard" : "desk" });
@@ -150,10 +190,14 @@ export default function App() {
           menuOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 px-5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-brand-600 text-white">
-            <Plane size={16} />
-          </span>
+        <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-slate-200 px-5">
+          <img
+            src="/logo.png"
+            alt="10 Minute School"
+            width={32}
+            height={32}
+            className="size-8 shrink-0 rounded-lg object-contain"
+          />
           <span className="text-sm font-bold leading-tight text-slate-800">
             TA & Per-Diem
             <span className="block text-xs font-normal text-slate-400">PeopleOps</span>
@@ -175,11 +219,6 @@ export default function App() {
         )}
 
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
-          {workspace === "self" && (
-            <button className="btn-primary mb-3 w-full" onClick={() => { setView({ name: "new" }); setMenuOpen(false); }}>
-              <Plus size={16} /> New Request
-            </button>
-          )}
           {nav.map(({ key, label, icon: Icon, badge }) => (
             <button
               key={key}
@@ -204,7 +243,7 @@ export default function App() {
           </div>
           <button
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
-            onClick={() => { clearToken(); window.location.reload(); }}
+            onClick={() => void signOut()}
           >
             <LogOut size={16} /> Sign out
           </button>
@@ -225,9 +264,13 @@ export default function App() {
           >
             <Menu size={20} />
           </button>
-          <span className="flex size-7 items-center justify-center rounded-lg bg-brand-600 text-white sm:hidden">
-            <Plane size={14} />
-          </span>
+          <img
+            src="/logo.png"
+            alt="10 Minute School"
+            width={28}
+            height={28}
+            className="size-7 shrink-0 rounded-lg object-contain sm:hidden"
+          />
           <span className={`hidden rounded-full px-3 py-1 text-xs font-semibold ring-1 sm:inline-flex ${
             workspace === "self"
               ? "bg-slate-50 text-slate-600 ring-slate-200"
@@ -238,10 +281,11 @@ export default function App() {
           <div className="flex-1" />
           {workspace === "self" && (
             <button
-              className="btn-primary !px-3 !py-1.5 text-xs lg:hidden"
+              className="btn-primary !px-3 !py-2 text-xs sm:!px-4 sm:text-sm"
               onClick={() => setView({ name: "new" })}
             >
-              <Plus size={14} /> New
+              <Plus size={15} />
+              New<span className="hidden sm:inline">&nbsp;Request</span>
             </button>
           )}
         </header>
@@ -258,7 +302,6 @@ export default function App() {
           {view.name === "dashboard" && (
             <Dashboard
               user={user}
-              onNew={() => setView({ name: "new" })}
               onOpen={(requestId) => setView({ name: "detail", requestId })}
               onGoto={go}
             />

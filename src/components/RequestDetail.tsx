@@ -346,6 +346,12 @@ export default function RequestDetail({
                 <span className="font-semibold text-slate-700">Final payable</span>
                 <span className="font-bold text-emerald-600"><Money value={r.finalPayable} currency={currency} /></span>
               </div>
+              {r.bkashNumber && (
+                <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">
+                  <span className="text-slate-600">Pay to (bKash)</span>
+                  <span className="font-mono font-semibold text-slate-800">{r.bkashNumber}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -436,6 +442,7 @@ export default function RequestDetail({
         <PaymentModal
           requestId={r.requestId}
           amount={r.finalPayable}
+          bkashNumber={r.bkashNumber}
           methods={policy.paymentMethods}
           currency={currency}
           onClose={() => setPaying(false)}
@@ -560,10 +567,11 @@ function ActionModal({
 }
 
 function PaymentModal({
-  requestId, amount, methods, currency, onClose, onDone,
+  requestId, amount, bkashNumber, methods, currency, onClose, onDone,
 }: {
   requestId: string;
   amount: number;
+  bkashNumber: string;
   methods: string[];
   currency: string;
   onClose: () => void;
@@ -592,6 +600,12 @@ function PaymentModal({
   return (
     <Modal title="Record payment" onClose={onClose}>
       <div className="space-y-4">
+        {bkashNumber && (
+          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
+            <span className="text-slate-600">Employee's bKash number: </span>
+            <span className="font-mono font-semibold text-slate-900">{bkashNumber}</span>
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Payment mode" required>
             <select className="field" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
@@ -734,6 +748,7 @@ function toDraft(r: Detail["request"]): RequestDraft {
     otherAmount: r.otherAmount,
     otherNote: r.otherNote,
     advanceRequested: r.advanceRequested,
+    bkashNumber: r.bkashNumber,
     documentTypes: r.documentTypes,
     documentLinks: r.documentLinks,
     employeeNote: r.employeeNote,

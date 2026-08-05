@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  BadgeCheck, Banknote, CircleDollarSign, Clock, Plus, RotateCcw, XCircle,
+  BadgeCheck, Banknote, CircleDollarSign, Clock, RotateCcw, XCircle,
 } from "lucide-react";
 import { api, type Summary } from "../api.js";
 import type { RequestRecord, SessionUser } from "../../shared/types.js";
@@ -20,10 +20,9 @@ const CARDS = [
  * raised — approver duties live in the separate Approval Desk workspace.
  */
 export default function Dashboard({
-  user, onNew, onOpen, onGoto,
+  user, onOpen, onGoto,
 }: {
   user: SessionUser;
-  onNew: () => void;
   onOpen: (id: string) => void;
   onGoto: (view: string) => void;
 }) {
@@ -44,18 +43,13 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900 sm:text-xl">
-            Hello, {user.name.split(" ")[0]}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Band {user.band} · {user.designation} · {user.department}
-          </p>
-        </div>
-        <button className="btn-primary" onClick={onNew}>
-          <Plus size={16} /> New Request
-        </button>
+      <div>
+        <h1 className="text-lg font-bold text-slate-900 sm:text-xl">
+          Hello, {user.name.split(" ")[0]}
+        </h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Band {user.band} · {user.designation} · {user.department}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-6">

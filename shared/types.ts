@@ -131,6 +131,8 @@ export interface RequestDraft {
   otherAmount: number;
   otherNote: string;
   advanceRequested: number;
+  /** Where the employee wants the money sent. */
+  bkashNumber: string;
   /** Multi-select: which kinds of document the links below cover. */
   documentTypes: string[];
   /** Google Drive (or any) links, one per entry. */
@@ -249,6 +251,7 @@ export interface RequestRecord {
   otherNote: string;
   totalClaim: number;
   advanceRequested: number;
+  bkashNumber: string;
   advanceApproved: number;
   advanceStatus: string;
   settlementDueDate: string;

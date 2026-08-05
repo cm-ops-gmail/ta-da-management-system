@@ -96,6 +96,19 @@ async function main() {
   if (widen.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests: widen } });
 
   // ── 3. Write header rows ──────────────────────────────────────────────────
+  // Renaming a header is safe on its own: rows are stored positionally, and the
+  // schema only ever renames columns, never reorders them. So a CamelCase sheet
+  // becomes snake_case with every value left exactly where it was.
+  for (const t of TABS) {
+    const live = (await readLive(t.title))[0];
+    if (!live) continue;
+    const current = Object.keys(live);
+    const renamed = current.filter((c, i) => t.headers[i] && t.headers[i] !== c);
+    if (renamed.length) {
+      console.log(`  ${t.title}: renaming ${renamed.length} header(s) — ${renamed.slice(0, 3).join(", ")}${renamed.length > 3 ? ", …" : ""}`);
+    }
+  }
+
   for (const t of TABS) {
     await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `${quote(t.title)}!1:1` });
   }

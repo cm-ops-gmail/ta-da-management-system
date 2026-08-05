@@ -98,6 +98,11 @@ export interface EmployeeLite {
 }
 
 export const api = {
+  /** Which sign-in methods this deployment offers. */
+  authMethods: () => call<{ password: boolean }>("/auth/methods"),
+  /** Exchanges a verified 10 Minute School access token for an app session. */
+  tenmsLogin: (accessToken: string) =>
+    post<{ token: string; user: SessionUser }>("/auth/tenms", { accessToken }),
   login: (email: string, password: string) =>
     post<{ token: string; user: SessionUser }>("/login", { email, password }),
   me: () => call<{ user: SessionUser }>("/me"),

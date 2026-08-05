@@ -21,7 +21,13 @@ export default function NewRequest({
   onCancel: () => void;
 }) {
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<RequestDraft>(editing?.draft ?? emptyDraft("inside"));
+  const [draft, setDraft] = useState<RequestDraft>(() => {
+    if (editing?.draft) return editing.draft;
+    // Pre-fill the payout number from the Employees sheet so most people only
+    // have to confirm it.
+    const start = emptyDraft("inside");
+    return { ...start, bkashNumber: user.accountNumber || "" };
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -105,7 +111,13 @@ export default function NewRequest({
             <StepAllowances draft={draft} set={set} policy={policy} user={user} computation={computation} currency={currency} />
           )}
           {step === 4 && (
-            <StepDocuments draft={draft} set={set} documentTypes={policy.documentTypes} />
+            <StepDocuments
+              draft={draft}
+              set={set}
+              documentTypes={policy.documentTypes}
+              payable={computation.finalPayable}
+              currency={currency}
+            />
           )}
 
           {error && <Notice tone="error" items={[error]} />}
@@ -929,11 +941,13 @@ function Stat({ label, value }: { label: string; value: string }) {
 // ── Step 5 ──────────────────────────────────────────────────────────────────
 
 function StepDocuments({
-  draft, set, documentTypes,
+  draft, set, documentTypes, payable, currency,
 }: {
   draft: RequestDraft;
   set: (p: Partial<RequestDraft>) => void;
   documentTypes: string[];
+  payable: number;
+  currency: string;
 }) {
   // Kept as raw text while typing so the employee can paste a whole block of
   // links; it is split into individual links on every change.
@@ -1020,6 +1034,28 @@ function StepDocuments({
             items={["Set your Drive sharing so your line manager, Administration and Finance can open the files — otherwise they will see “Request access”."]}
           />
         </div>
+      </Card>
+
+      <Card
+        title="Where should the money go?"
+        subtitle={`Finance pays the approved amount to this number.${payable > 0 ? ` Right now that is ${currency} ${payable}.` : ""}`}
+      >
+        <Field
+          label="Your bKash number"
+          required={payable > 0}
+          hint="11 digits starting with 01. Pre-filled from your employee record — change it if the money should go somewhere else."
+        >
+          <input
+            className="field"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel"
+            maxLength={14}
+            placeholder="01712345678"
+            value={draft.bkashNumber}
+            onChange={(e) => set({ bkashNumber: e.target.value })}
+          />
+        </Field>
       </Card>
 
       <Card title="Note for the approvers">

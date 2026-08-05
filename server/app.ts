@@ -15,6 +15,7 @@ import {
   withSheetLock, type Row,
 } from "./sheets.js";
 import { hasRole, signToken, verifyToken, type Session } from "./auth.js";
+import { TenMSVerifyError, verifyAccessToken } from "./tenms.js";
 import {
   allEmployees, deptHeadIdFor, fromRequest, invalidateEmployees, invalidatePolicy, loadPolicy,
   managesOthers, nextRequestId, nowISO, parseLinks, STAGE_COLUMN, toApprovalRow, toRequest,
@@ -55,7 +56,72 @@ function handler(fn: (req: AuthedRequest, res: Response) => Promise<void>) {
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 
+/**
+ * Which sign-in methods this deployment offers. Unauthenticated on purpose —
+ * the login screen needs it before anyone is signed in.
+ */
+app.get("/api/auth/methods", handler(async (_req, res) => {
+  res.json({
+    password: String(process.env.ALLOW_PASSWORD_LOGIN || "").toLowerCase() === "true",
+  });
+}));
+
+/**
+ * Signs a person in from a verified 10 Minute School session.
+ *
+ * The browser sends the access token it just obtained; we ask the provider who
+ * that token belongs to, then match the email against the Employees sheet.
+ * Everything about the person — band, department, roles, line manager — comes
+ * from the sheet, never from the identity provider.
+ */
+app.post("/api/auth/tenms", handler(async (req, res) => {
+  const accessToken = String(req.body?.accessToken || "");
+
+  let profile;
+  try {
+    profile = await verifyAccessToken(accessToken);
+  } catch (err) {
+    const e = err as TenMSVerifyError;
+    res.status(e.status || 401).json({ error: e.message });
+    return;
+  }
+
+  const email = String(profile.email || "").trim().toLowerCase();
+  if (!email) {
+    res.status(403).json({ error: "Your 10 Minute School account has no email address, so it cannot be matched to an employee record." });
+    return;
+  }
+
+  const employee = (await allEmployees()).find((e) => e.email.toLowerCase() === email);
+  if (!employee) {
+    res.status(403).json({
+      error: `${email} is not in the Employees sheet. Ask PeopleOps to add you before signing in.`,
+    });
+    return;
+  }
+  if (employee.status !== "Active") {
+    res.status(403).json({ error: "This account is marked inactive. Contact PeopleOps." });
+    return;
+  }
+
+  const { password: _pw, status: _st, _row, ...user } = employee;
+  res.json({
+    token: signToken(user),
+    user: { ...user, managesOthers: await managesOthers(user.employeeId) },
+  });
+}));
+
+/**
+ * Password sign-in, kept for local development and first-run setup only.
+ * Disabled unless ALLOW_PASSWORD_LOGIN is set, because the sheet stores
+ * passwords in plain text — 10 Minute School SSO is the real front door.
+ */
 app.post("/api/login", handler(async (req, res) => {
+  if (String(process.env.ALLOW_PASSWORD_LOGIN || "").toLowerCase() !== "true") {
+    res.status(403).json({ error: "Password sign-in is disabled. Use “Login with 10 Minute School”." });
+    return;
+  }
+
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password ?? "");
   if (!email || !password) {
@@ -76,9 +142,10 @@ app.post("/api/login", handler(async (req, res) => {
   }
 
   const { password: _pw, status: _st, _row, ...user } = employee;
-  // Being a line manager is derived from the roster, never stored as a role.
-  const withHierarchy = { ...user, managesOthers: await managesOthers(user.employeeId) };
-  res.json({ token: signToken(user), user: withHierarchy });
+  res.json({
+    token: signToken(user),
+    user: { ...user, managesOthers: await managesOthers(user.employeeId) },
+  });
 }));
 
 app.get("/api/me", requireAuth, handler(async (req, res) => {
@@ -169,9 +236,9 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
   // Requests this user has personally decided on, read off the Approvals row.
   const actedOn = new Set(
     tabs.Approvals
-      .filter((a) => ["ManagerBy", "AdminBy", "FinanceBy", "PaymentBy", "AdvanceHRBy", "AdvanceDeptHeadBy"]
+      .filter((a) => ["manager_by", "admin_by", "finance_by", "payment_by", "advance_hr_by", "advance_dept_head_by"]
         .some((c) => String(a[c] || "").toLowerCase().includes(myEmail)))
-      .map((a) => a.RequestID),
+      .map((a) => a.request_id),
   );
 
   const filtered = visible.filter((r) => {
@@ -196,7 +263,7 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
 
   // Whose desk each claim is sitting on, plus the last thing that happened to
   // it — so a register row explains itself without opening the claim.
-  const approvalByRequest = new Map(tabs.Approvals.map((a) => [a.RequestID, a]));
+  const approvalByRequest = new Map(tabs.Approvals.map((a) => [a.request_id, a]));
   const WAITING: Record<string, string> = {
     manager_review: "Line Manager",
     admin_review: "Administration",
@@ -212,8 +279,8 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
       ...r,
       isMine: isMine(r),
       waitingOn: WAITING[r.status] || "",
-      lastAction: a?.LastAction || "",
-      lastActionAt: a?.LastActionAt || "",
+      lastAction: a?.last_action || "",
+      lastActionAt: a?.last_action_at || "",
     };
   };
 
@@ -257,7 +324,7 @@ function summarise(rows: RequestRecord[]) {
 
 app.get("/api/requests/:id", requireAuth, handler(async (req, res) => {
   const tabs = await readTabs(["Requests", "Approvals"]);
-  const row = tabs.Requests.find((r) => r.RequestID === req.params.id);
+  const row = tabs.Requests.find((r) => r.request_id === req.params.id);
   if (!row) {
     res.status(404).json({ error: "Request not found." });
     return;
@@ -267,7 +334,7 @@ app.get("/api/requests/:id", requireAuth, handler(async (req, res) => {
     res.status(403).json({ error: "You do not have access to this request." });
     return;
   }
-  const approvalRow = tabs.Approvals.find((a) => a.RequestID === record.requestId);
+  const approvalRow = tabs.Approvals.find((a) => a.request_id === record.requestId);
 
   res.json({
     request: record,
@@ -346,6 +413,7 @@ function normaliseDraft(raw: unknown): RequestDraft {
     otherAmount: n(d.otherAmount),
     otherNote: d.otherNote || "",
     advanceRequested: n(d.advanceRequested),
+    bkashNumber: String(d.bkashNumber || "").trim(),
     documentTypes: Array.isArray(d.documentTypes) ? d.documentTypes.filter(Boolean) : [],
     documentLinks: parseLinks(d.documentLinks),
     employeeNote: d.employeeNote || "",
@@ -414,6 +482,7 @@ function buildRecord(
     otherNote: draft.otherNote,
     totalClaim: computation.totalClaim,
     advanceRequested: computation.advanceRequested,
+    bkashNumber: draft.bkashNumber,
     advanceApproved: base.advanceApproved ?? 0,
     advanceStatus: computation.advanceRequested > 0 ? (base.advanceStatus || "pending") : "",
     settlementDueDate: computation.advanceRequested > 0
@@ -456,14 +525,14 @@ async function ensureUniqueRequestId(
   if (!rowNumber) return record;
   const rows = await readTab("Requests");
   const clashes = rows
-    .filter((r) => r.RequestID === record.requestId)
+    .filter((r) => r.request_id === record.requestId)
     .map((r) => Number(r._row))
     .sort((a, b) => a - b);
   if (clashes.length <= 1 || clashes[0] === rowNumber) return record;
 
   const year = new Date().getFullYear();
   const highest = rows.reduce((max, r) => {
-    const n = Number(String(r.RequestID || "").split("-")[2]) || 0;
+    const n = Number(String(r.request_id || "").split("-")[2]) || 0;
     return n > max ? n : max;
   }, 0);
   // Each loser offsets by its position, so two of them cannot pick the same one.
@@ -519,7 +588,7 @@ app.post("/api/requests", requireAuth, handler(async (req, res) => {
 
 app.put("/api/requests/:id", requireAuth, handler(async (req, res) => {
   const rows = await readTab("Requests");
-  const row = rows.find((r) => r.RequestID === req.params.id);
+  const row = rows.find((r) => r.request_id === req.params.id);
   if (!row) {
     res.status(404).json({ error: "Request not found." });
     return;
@@ -585,7 +654,7 @@ app.post("/api/requests/:id/action", requireAuth, handler(async (req, res) => {
   const action = String(req.body?.action || "");
   const remarks = String(req.body?.remarks || "");
   const rows = await readTab("Requests");
-  const row = rows.find((r) => r.RequestID === req.params.id);
+  const row = rows.find((r) => r.request_id === req.params.id);
   if (!row) {
     res.status(404).json({ error: "Request not found." });
     return;
@@ -682,7 +751,7 @@ app.post("/api/requests/:id/payment", requireAuth, handler(async (req, res) => {
     return;
   }
   const rows = await readTab("Requests");
-  const row = rows.find((r) => r.RequestID === req.params.id);
+  const row = rows.find((r) => r.request_id === req.params.id);
   if (!row) {
     res.status(404).json({ error: "Request not found." });
     return;
@@ -791,7 +860,7 @@ app.get("/api/advances", requireAuth, handler(async (req, res) => {
 app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
   const action = String(req.body?.action || "");
   const rows = await readTab("Requests");
-  const row = rows.find((r) => r.RequestID === req.params.id);
+  const row = rows.find((r) => r.request_id === req.params.id);
   if (!row) {
     res.status(404).json({ error: "Request not found." });
     return;
