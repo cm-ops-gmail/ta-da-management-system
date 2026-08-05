@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Loader2 } from "lucide-react";
+import { ExternalLink, KeyRound, Loader2 } from "lucide-react";
 import { LoginButton, useTenMSAuth } from "@tenminuteschool/auth-admin-react";
 import { api, setToken } from "../api.js";
 import { CLIENT_ID, REDIRECT_URI } from "../lib/auth.js";
@@ -12,16 +12,27 @@ import type { SessionUser } from "../../shared/types.js";
  * account's email against the Employees sheet, which is where band, department,
  * roles and line manager actually live.
  */
-export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
+export default function Login({
+  onSignedIn,
+  notice = "",
+}: {
+  onSignedIn: (user: SessionUser) => void;
+  notice?: string;
+}) {
   const { auth, refresh } = useTenMSAuth();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(notice);
   const [showRedirectHint, setShowRedirectHint] = useState(false);
   const [passwordAllowed, setPasswordAllowed] = useState(false);
 
   useEffect(() => {
     api.authMethods().then((m) => setPasswordAllowed(m.password)).catch(() => {});
   }, []);
+
+  // The sign-in popup talks back to its opener with postMessage, which the
+  // browser's Cross-Origin-Opener-Policy blocks when the opener is a
+  // cross-origin frame. Signing in has to happen in a top-level tab.
+  const embedded = typeof window !== "undefined" && window.top !== window.self;
 
   if (!CLIENT_ID) {
     return (
@@ -46,6 +57,16 @@ export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) 
         </p>
 
         <div className="mt-7">
+          {embedded ? (
+            <a
+              href={window.location.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+            >
+              <ExternalLink size={16} /> Open in a new tab to sign in
+            </a>
+          ) : (
           <LoginButton
             clientId={CLIENT_ID}
             redirectUri={REDIRECT_URI}
@@ -78,6 +99,13 @@ export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) 
               setBusy(false);
             }}
           />
+          )}
+          {embedded && (
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              This page is embedded in another site, and the browser will not let a sign-in window talk back to
+              it. Sign in once in a tab and this panel will work from then on.
+            </p>
+          )}
         </div>
 
         {busy && (

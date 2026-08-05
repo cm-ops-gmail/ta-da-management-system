@@ -17,6 +17,22 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/**
+ * What to do when the server says the session is gone.
+ *
+ * This used to be `window.location.reload()`, which loops: reloading does not
+ * clear the *provider* session, so the app boots, exchanges that session for an
+ * app token again, gets the same 401, and reloads again. Embedded in another
+ * site the reload is invisible as a reload — it just looks like the page
+ * flickering between the spinner and the sign-in screen. Re-rendering into a
+ * signed-out state ends the cycle and leaves the reason on screen.
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(fn: () => void): void {
+  onUnauthorized = fn;
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
@@ -28,8 +44,15 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (res.status === 401) {
     clearToken();
-    window.location.reload();
-    throw new Error("Session expired.");
+    onUnauthorized?.();
+    const text = await res.text().catch(() => "");
+    let message = "Your session has expired. Please sign in again.";
+    try {
+      message = JSON.parse(text).error || message;
+    } catch {
+      /* a non-JSON 401 (a proxy, say) keeps the default wording */
+    }
+    throw Object.assign(new Error(message), { status: 401 });
   }
   const text = await res.text();
   const body = text ? JSON.parse(text) : {};

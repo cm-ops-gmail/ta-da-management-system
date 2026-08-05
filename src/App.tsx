@@ -4,7 +4,7 @@ import {
   LogOut, Menu, Plus, Settings, ShieldCheck, User, Wallet, X,
 } from "lucide-react";
 import { useTenMSAuth } from "@tenminuteschool/auth-admin-react";
-import { api, clearToken, getToken, setToken } from "./api.js";
+import { api, clearToken, getToken, setToken, setUnauthorizedHandler } from "./api.js";
 import type { Policy, RequestDraft, SessionUser } from "../shared/types.js";
 import Login from "./components/Login.js";
 import Dashboard from "./components/Dashboard.js";
@@ -47,12 +47,29 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [inbox, setInbox] = useState(0);
+  const [signInError, setSignInError] = useState("");
 
   const bootstrap = useCallback(async (signedIn: SessionUser) => {
     setUser(signedIn);
     const [p, r] = await Promise.all([api.policy(), api.requests("mine").catch(() => null)]);
     setPolicy(p);
     if (r) setInbox(r.inbox);
+  }, []);
+
+  /**
+   * A 401 mid-session drops straight back to the sign-in screen. It must never
+   * navigate or reload: the provider session outlives an app token, so a reload
+   * would just re-exchange it, fail the same way and reload again — which is
+   * what made the page flicker when embedded in another site.
+   */
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      setPolicy(null);
+      setView({ name: "dashboard" });
+      setWorkspace("self");
+      setSignInError("Your session has expired. Please sign in again.");
+    });
   }, []);
 
   /**
@@ -83,21 +100,34 @@ export default function App() {
             return;
           }
         }
-      } catch {
+      } catch (err) {
         clearToken();
+        if (cancelled) return;
+        // Say why. Silently falling back to a bare sign-in screen is how
+        // "you are not in the Employees sheet" became invisible.
+        setSignInError((err as Error).message);
+        // A provider session that this app cannot exchange is worse than none:
+        // it is retried on every load and never improves. Drop it so the next
+        // attempt starts clean.
+        if ((err as { status?: number }).status === 401) {
+          await auth.logout().catch(() => {});
+          refreshSession();
+        }
       } finally {
         if (!cancelled) setBooting(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [authLoading, tenmsUser, auth, bootstrap]);
+  }, [authLoading, tenmsUser, auth, bootstrap, refreshSession]);
 
   if (booting || authLoading) return <Spinner label="Starting up…" />;
   if (!user) {
     return (
       <Login
+        notice={signInError}
         onSignedIn={(u) => {
+          setSignInError("");
           setBooting(true);
           bootstrap(u).finally(() => setBooting(false));
         }}
@@ -146,7 +176,14 @@ export default function App() {
     } finally {
       // The provider does not observe storage on its own.
       refreshSession();
-      window.location.href = "/";
+      // Re-render into the signed-out state rather than navigating: embedded in
+      // another site, navigating only reloads the frame, and the handoff token
+      // in the URL would sign the person straight back in.
+      setUser(null);
+      setPolicy(null);
+      setWorkspace("self");
+      setView({ name: "dashboard" });
+      setSignInError("");
     }
   }
 
