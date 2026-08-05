@@ -98,6 +98,23 @@ export interface EmployeeLite {
 }
 
 export const api = {
+  uploadConfig: () => call<{ enabled: boolean; maxBytes: number }>("/uploads/config"),
+  /** Sends the raw bytes; the name and type ride along as query parameters. */
+  upload: async (file: File, index: number) => {
+    const q = new URLSearchParams({ name: file.name, type: file.type || "application/octet-stream", index: String(index) });
+    const res = await fetch(`/api/uploads?${q}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getToken()}`,
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Upload failed (${res.status})`);
+    return body.file as { id: string; name: string; link: string; sizeBytes: number; originalName: string };
+  },
+
   /** Which sign-in methods this deployment offers. */
   authMethods: () => call<{ password: boolean }>("/auth/methods"),
   /** Exchanges a verified 10 Minute School access token for an app session. */

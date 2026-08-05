@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, Check, ChevronDown, Link as LinkIcon, Loader2, Plus, Send, Trash2, Users,
+  ArrowLeft, ArrowRight, Check, ChevronDown, FileUp, Link as LinkIcon, Loader2, Plus, Send, Trash2, Users,
 } from "lucide-react";
 import { api } from "../api.js";
 import {
@@ -949,28 +949,58 @@ function StepDocuments({
   payable: number;
   currency: string;
 }) {
-  // Kept as raw text while typing so the employee can paste a whole block of
-  // links; it is split into individual links on every change.
-  const [raw, setRaw] = useState(draft.documentLinks.join("\n"));
+  const [uploading, setUploading] = useState(0);
+  const [error, setError] = useState("");
+  const [maxBytes, setMaxBytes] = useState(4 * 1024 * 1024);
+  const [enabled, setEnabled] = useState(true);
+  const [dragging, setDragging] = useState(false);
 
-  function onLinks(text: string) {
-    setRaw(text);
-    set({ documentLinks: text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean) });
+  useEffect(() => {
+    api.uploadConfig()
+      .then((c) => { setEnabled(c.enabled); setMaxBytes(c.maxBytes); })
+      .catch(() => {});
+  }, []);
+
+  const maxMB = Math.round(maxBytes / 1024 / 1024);
+
+  async function accept(list: FileList | null) {
+    if (!list?.length) return;
+    setError("");
+    const files = Array.from(list);
+    const links = [...draft.documentLinks];
+
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      if (file.size > maxBytes) {
+        setError(`${file.name} is larger than the ${maxMB} MB limit.`);
+        continue;
+      }
+      setUploading((n) => n + 1);
+      try {
+        // Index continues from what is already attached, so a second batch
+        // does not reuse a name from the first.
+        const saved = await api.upload(file, links.length);
+        links.push(saved.link);
+        set({ documentLinks: [...links] });
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
   }
-
-  const bad = draft.documentLinks.filter((l) => !/^https?:\/\/\S+$/i.test(l));
 
   return (
     <>
       <Card
         title="Documents"
-        subtitle="Upload your tickets, bills, receipts, invoices, hotel bills or approval mail to Drive, then share the links here."
+        subtitle="Attach your tickets, bills, receipts, invoices, hotel bills or approval mail. They are saved to the shared Drive folder and renamed with your employee ID, name and date."
       >
         <div className="space-y-4">
           <Field
             label="Document types"
             required
-            hint="Pick every type your links cover — you can select more than one."
+            hint="Pick every type your files cover — you can select more than one."
           >
             <MultiSelect
               options={documentTypes}
@@ -980,59 +1010,67 @@ function StepDocuments({
             />
           </Field>
 
-          <Field
-            label="Drive links"
-            required
-            hint="One link per line — or paste several separated by spaces or commas."
-          >
-            <textarea
-              className="field min-h-32 font-mono text-xs"
-              value={raw}
-              onChange={(e) => onLinks(e.target.value)}
-              placeholder={"https://drive.google.com/file/d/…/view\nhttps://drive.google.com/file/d/…/view"}
+          {!enabled && (
+            <Notice
+              tone="warn"
+              items={["File uploads are not configured on this deployment yet — DRIVE_FOLDER_ID is not set."]}
             />
-          </Field>
+          )}
+
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); accept(e.dataTransfer.files); }}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition ${
+              dragging ? "border-brand-500 bg-brand-50" : "border-slate-300 bg-slate-50 hover:bg-slate-100"
+            }`}
+          >
+            <FileUp size={22} className="text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">Choose files, or drag them here</span>
+            <span className="text-xs text-slate-500">
+              Image, PDF, Word, Excel or CSV · up to {maxMB} MB each · camera supported on mobile
+            </span>
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              disabled={!enabled}
+              onChange={(e) => { accept(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+
+          {uploading > 0 && (
+            <p className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 size={15} className="animate-spin" /> Uploading {uploading} file(s)…
+            </p>
+          )}
+
+          {error && <Notice tone="error" items={[error]} />}
 
           {draft.documentLinks.length > 0 && (
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-              {draft.documentLinks.map((link, i) => {
-                const valid = /^https?:\/\/\S+$/i.test(link);
-                return (
-                  <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                    <LinkIcon size={15} className={valid ? "shrink-0 text-slate-400" : "shrink-0 text-rose-500"} />
-                    <span className={`min-w-0 flex-1 truncate ${valid ? "text-slate-600" : "text-rose-600"}`}>
-                      {link}
-                    </span>
-                    {valid && (
-                      <a
-                        href={link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="shrink-0 text-xs font-semibold text-brand-600 hover:underline"
-                      >
-                        Open
-                      </a>
-                    )}
-                    <button
-                      onClick={() => onLinks(draft.documentLinks.filter((_, idx) => idx !== i).join("\n"))}
-                      className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </li>
-                );
-              })}
+              {draft.documentLinks.map((link, i) => (
+                <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                  <LinkIcon size={15} className="shrink-0 text-slate-400" />
+                  <a
+                    href={link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate font-medium text-slate-700 hover:underline"
+                  >
+                    {link}
+                  </a>
+                  <button
+                    onClick={() => set({ documentLinks: draft.documentLinks.filter((_, idx) => idx !== i) })}
+                    className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    aria-label="Remove"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
-
-          {bad.length > 0 && (
-            <Notice tone="error" items={[`Not a valid link: ${bad.slice(0, 3).join(", ")} — paste the full URL starting with https://`]} />
-          )}
-
-          <Notice
-            tone="info"
-            items={["Set your Drive sharing so your line manager, Administration and Finance can open the files — otherwise they will see “Request access”."]}
-          />
         </div>
       </Card>
 

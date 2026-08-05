@@ -17,6 +17,9 @@ import {
 import { hasRole, signToken, verifyToken, type Session } from "./auth.js";
 import { TenMSVerifyError, verifyAccessToken } from "./tenms.js";
 import {
+  DRIVE_FOLDER_ID, DriveError, documentFileName, MAX_UPLOAD_BYTES, uploadFile,
+} from "./drive.js";
+import {
   allEmployees, deptHeadIdFor, fromRequest, invalidateEmployees, invalidatePolicy, loadPolicy,
   managesOthers, nextRequestId, nowISO, parseLinks, rememberAuthId, STAGE_COLUMN, toApprovalRow,
   toRequest, upsertApproval,
@@ -186,6 +189,42 @@ app.get("/api/employees", requireAuth, handler(async (req, res) => {
     })),
   });
 }));
+
+/** Whether this deployment can accept file uploads at all. */
+app.get("/api/uploads/config", requireAuth, handler(async (_req, res) => {
+  res.json({ enabled: !!DRIVE_FOLDER_ID, maxBytes: MAX_UPLOAD_BYTES });
+}));
+
+/**
+ * Receives one file and stores it in the shared Drive folder, named
+ * `employeeId-name-date`. The raw bytes are the request body; the original
+ * file name and type ride along as query parameters.
+ */
+app.post(
+  "/api/uploads",
+  requireAuth,
+  express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES + 1024 * 1024 }),
+  handler(async (req, res) => {
+    const original = String(req.query.name || "file");
+    const mimeType = String(req.query.type || "application/octet-stream");
+    const index = Number(req.query.index) || 0;
+    const body = req.body as Buffer;
+
+    if (!Buffer.isBuffer(body) || !body.length) {
+      res.status(400).json({ error: "No file content was received." });
+      return;
+    }
+
+    const name = documentFileName(req.session.employeeId, req.session.name, original, index);
+    try {
+      const file = await uploadFile(name, mimeType, body);
+      res.json({ file: { ...file, originalName: original } });
+    } catch (err) {
+      const e = err as DriveError;
+      res.status(e.status || 502).json({ error: e.message });
+    }
+  }),
+);
 
 // ── Visibility and stage ownership ──────────────────────────────────────────
 

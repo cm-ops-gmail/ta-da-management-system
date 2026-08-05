@@ -144,12 +144,29 @@ trip:
 
 ## Documents
 
-No file uploads. The employee uploads to Drive and shares the links: a **multi-select** of document
-types (Ticket, Bill, Receipt, Invoice, Hotel Bill, Ride Sharing Receipt, Trip Screenshot, Fuel
-Calculation, Approval Mail, Supporting Document — all editable in `Lists`), plus a box for **as many
-links as needed**, one per line or pasted separated by spaces/commas. Links are validated, listed
-individually with an Open button, and approvers click straight through from the request. Add or
-rename a document type in `Lists` and it appears in the dropdown immediately.
+The employee picks files from their device — image, PDF, Word, Excel, CSV, anything — and they are
+uploaded straight to a shared Google Drive folder, renamed **`employeeId-name-date`** (a second file
+in the same claim gets `-2`, and so on). The request stores the resulting Drive links, so approvers
+click through from the claim as before. Alongside that is a **multi-select** of document types,
+editable in the `Lists` tab.
+
+### Drive access has to be set up first
+
+A service account **has no storage quota of its own**, so it cannot own a file. Uploads fail with
+*"Service Accounts do not have storage quota"* until one of these is in place — Google offers
+exactly two options:
+
+1. **Put the folder in a Shared Drive** and give the service account *Content Manager*. Storage is
+   billed to the organisation, so no quota is needed. Then just set `DRIVE_FOLDER_ID`. *(Simplest.)*
+2. **Domain-wide delegation** — authorise the service account for the Drive scope in the Workspace
+   admin console, then set `GOOGLE_IMPERSONATE_SUBJECT` to a real user. Files are created as that
+   person and count against their quota, which is what makes an ordinary My Drive folder work.
+
+| Variable | Purpose |
+|---|---|
+| `DRIVE_FOLDER_ID` | The folder uploads land in. Without it, uploads are switched off and the form says so. |
+| `MAX_UPLOAD_MB` | Per-file limit, default 4. Vercel caps a request body at ~4.5 MB. |
+| `GOOGLE_IMPERSONATE_SUBJECT` | Only for option 2 above. |
 
 ## How the policy works
 
