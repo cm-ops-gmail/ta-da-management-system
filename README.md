@@ -88,10 +88,10 @@ column, which you are maintaining regardless:
   the Approval Desk automatically, and see exactly their own reports' claims. Rakib above is a plain
   `user` and still approves Ariful's claims, because Ariful points at him.
 - **Department head** — one level above the approving line manager, i.e. the line manager's own line
-  manager. For Ariful (→ Rakib → Farhana) that is Farhana, so she approves an advance above the
-  limit. Administration can clear that step too. When the line manager is already the top of the
-  chain there is nobody above to escalate to, so the advance is never sent there — the HR /
-  Administration approval is final.
+  manager. For Ariful (→ Rakib → Farhana) that is Farhana. An advance over the limit always takes a
+  second approval after HR: the department head when the employee has one, Administration when
+  nobody sits above the line manager. Administration can clear either case, and its approval is the
+  last stage.
 
 Move a person to a different manager in the sheet and their approvals move with them on the next
 request — nothing else to update.
@@ -172,9 +172,10 @@ authoritative). It reads every number from the sheet — nothing is hard-coded:
   rejects a rent-a-car under 3 people or flags it above the BDT 6,000 one-way limit.
 - **Company arrangement** is blocked under 2 business days' notice with the PRD's exact wording, and
   notifies Administration immediately when valid.
-- **Advance** only for outside-city trips over 3 days; Line Manager → HR, plus Department Head above
-  BDT 10,000 (the department head being derived from the line-manager chain); settlement due 3
-  working days after the trip.
+- **Advance** only for outside-city trips over 3 days. Line Manager → HR, and above BDT 10,000 one
+  more approval after that — the Department Head derived from the line-manager chain, or
+  Administration when there is nobody above the line manager. Settlement is due 3 working days
+  after the trip.
 
 Change any of it from **Configuration** in the app, or by editing the sheet directly — no code change.
 

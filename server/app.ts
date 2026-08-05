@@ -827,9 +827,11 @@ async function advanceStepFor(
   }
   if (r.advanceStatus === "awaiting_dept_head") {
     const head = await deptHeadIdFor(r.employeeId);
-    return session.employeeId === head || hasRole(session, "admin")
-      ? { action: "dept_head_approve", label: "Department Head approval" }
-      : null;
+    if (session.employeeId !== head && !hasRole(session, "admin")) return null;
+    return {
+      action: "dept_head_approve",
+      label: head ? "Department Head approval" : "Administration approval",
+    };
   }
   if (r.advanceStatus === "manager_approved") {
     return hasRole(session, "hr", "admin") ? { action: "hr_approve", label: "HR approval" } : null;
@@ -874,11 +876,10 @@ app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
 
   const policy = await loadPolicy();
   const deptHead = await deptHeadIdFor(record.employeeId);
-  // Escalate only when someone actually sits above the line manager. Without
-  // that check an employee whose manager is already at the top of the chain
-  // lands in "awaiting_dept_head" with nobody able to clear it, ever.
-  const needsDeptHead =
-    record.advanceRequested > cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000) && !!deptHead;
+  // Anything over the limit always takes a second approval after HR. That is
+  // the department head when the employee has one; when nobody sits above the
+  // line manager, Administration clears it instead — so it can never stall.
+  const needsDeptHead = record.advanceRequested > cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000);
   const stamp = `${req.session.name} <${req.session.email}>`;
   const updated: RequestRecord = { ...record, updatedAt: nowISO() };
   let group: "AdvanceHR" | "AdvanceDeptHead" | undefined;
