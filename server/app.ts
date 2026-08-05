@@ -18,8 +18,8 @@ import { hasRole, signToken, verifyToken, type Session } from "./auth.js";
 import { TenMSVerifyError, verifyAccessToken } from "./tenms.js";
 import {
   allEmployees, deptHeadIdFor, fromRequest, invalidateEmployees, invalidatePolicy, loadPolicy,
-  managesOthers, nextRequestId, nowISO, parseLinks, STAGE_COLUMN, toApprovalRow, toRequest,
-  upsertApproval,
+  managesOthers, nextRequestId, nowISO, parseLinks, rememberAuthId, STAGE_COLUMN, toApprovalRow,
+  toRequest, upsertApproval,
 } from "./store.js";
 import { addBusinessDays, cfgNum, cfgStr, computeRequest, eligibleModes, fuelRateFor } from "../shared/policy.js";
 import type { RequestDraft, RequestRecord, Status } from "../shared/types.js";
@@ -104,7 +104,10 @@ app.post("/api/auth/tenms", handler(async (req, res) => {
     return;
   }
 
-  const { password: _pw, status: _st, _row, ...user } = employee;
+  // Record which provider account this person signs in with.
+  await rememberAuthId(employee._row, profile.sub);
+
+  const { password: _pw, status: _st, authId: _aid, _row, ...user } = employee;
   res.json({
     token: signToken(user),
     user: { ...user, managesOthers: await managesOthers(user.employeeId) },
@@ -141,7 +144,7 @@ app.post("/api/login", handler(async (req, res) => {
     return;
   }
 
-  const { password: _pw, status: _st, _row, ...user } = employee;
+  const { password: _pw, status: _st, authId: _aid, _row, ...user } = employee;
   res.json({
     token: signToken(user),
     user: { ...user, managesOthers: await managesOthers(user.employeeId) },

@@ -105,11 +105,13 @@ The same holds for HR on advances and for `PaidBy` on the request row.
 ## Google Sheet tabs — six, one row per record
 
 Created, formatted and migrated automatically by `npm run setup` (frozen bold headers,
-colour-coded tabs, column widths, filters).
+colour-coded tabs, column widths, filters). Re-running it is safe: each tab is re-read under its
+own live headers and written back **mapped by column name**, so a column can be added anywhere —
+even at the front — without shifting a single value.
 
 | Tab | What it holds |
 |---|---|
-| `Employees` | People, bands, `LineManagerID` (which defines the whole hierarchy), roles, login |
+| `Employees` | `auth_id` (filled in on first SSO sign-in), people, bands, `line_manager_id` (which defines the whole hierarchy), roles, login |
 | `Requests` | **One row per claim.** Trips, team members, document links, payment details and advance/settlement are columns on that row — never extra rows |
 | `Approvals` | **One row per claim**, with a column group per desk: `ManagerStatus / ManagerBy / ManagerAt / ManagerRemarks`, then Admin, Finance, Payment, and the advance HR / Dept-Head steps |
 | `Config` | Rates, limits and thresholds as key/value |

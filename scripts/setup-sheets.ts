@@ -95,18 +95,27 @@ async function main() {
     }));
   if (widen.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests: widen } });
 
-  // ── 3. Write header rows ──────────────────────────────────────────────────
-  // Renaming a header is safe on its own: rows are stored positionally, and the
-  // schema only ever renames columns, never reorders them. So a CamelCase sheet
-  // becomes snake_case with every value left exactly where it was.
+  // ── 3. Realign columns, then write header rows ────────────────────────────
+  // Rows are stored positionally, so inserting or moving a column would leave
+  // every value after it under the wrong header. Instead of assuming the
+  // schema only ever appends, each tab is re-read under its *live* headers and
+  // written back mapped by NAME onto the new order. Columns that are new come
+  // out empty; existing values follow their own header wherever it moved to.
+  const realign: { title: string; rows: string[][]; added: string[] }[] = [];
   for (const t of TABS) {
-    const live = (await readLive(t.title))[0];
-    if (!live) continue;
-    const current = Object.keys(live);
-    const renamed = current.filter((c, i) => t.headers[i] && t.headers[i] !== c);
-    if (renamed.length) {
-      console.log(`  ${t.title}: renaming ${renamed.length} header(s) — ${renamed.slice(0, 3).join(", ")}${renamed.length > 3 ? ", …" : ""}`);
-    }
+    const rows = await readLive(t.title);
+    if (!rows.length) continue;
+    const live = Object.keys(rows[0]);
+    if (live.length === t.headers.length && live.every((c, i) => c === t.headers[i])) continue;
+
+    const added = t.headers.filter((h) => !live.includes(h));
+    const dropped = live.filter((h) => !t.headers.includes(h));
+    console.log(
+      `  ${t.title}: realigning ${rows.length} row(s)` +
+      (added.length ? ` — new: ${added.join(", ")}` : "") +
+      (dropped.length ? ` — no longer used: ${dropped.join(", ")}` : ""),
+    );
+    realign.push({ title: t.title, rows: rows.map((r) => t.headers.map((h) => nn(r[h]))), added });
   }
 
   for (const t of TABS) {
@@ -123,6 +132,18 @@ async function main() {
     },
   });
   console.log("Header rows written.");
+
+  for (const r of realign) {
+    const t = TABS.find((x) => x.title === r.title)!;
+    await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `${quote(r.title)}!A2:BZ` });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: id,
+      range: `${quote(r.title)}!A2:${colLetter(t.headers.length - 1)}${r.rows.length + 1}`,
+      valueInputOption: "RAW",
+      requestBody: { values: r.rows },
+    });
+    console.log(`  ${r.title}: ${r.rows.length} row(s) rewritten under the new column order.`);
+  }
 
   // ── 4. Migrate request + approval data onto the new columns ───────────────
   if (oldRequests) {
@@ -231,11 +252,17 @@ async function main() {
 
   // ── 5. Seed reference data into empty tabs only ───────────────────────────
   const seedable = TABS.filter((t) => t.seed?.length);
+  // Look at the whole data block, not just column A. Column A can legitimately
+  // be empty — auth_id is blank until someone signs in — and treating that as
+  // "tab is empty" would re-seed over real rows.
   const current = await sheets.spreadsheets.values.batchGet({
     spreadsheetId: id,
-    ranges: seedable.map((t) => `${quote(t.title)}!A2:A`),
+    ranges: seedable.map((t) => `${quote(t.title)}!A2:${colLetter(t.headers.length - 1)}`),
   });
-  const toSeed = seedable.filter((_, i) => !(current.data.valueRanges?.[i].values?.length));
+  const toSeed = seedable.filter((_, i) => {
+    const rows = (current.data.valueRanges?.[i].values || []) as unknown[][];
+    return !rows.some((r) => r?.some((c) => c !== "" && c !== null && c !== undefined));
+  });
   if (toSeed.length) {
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: id,

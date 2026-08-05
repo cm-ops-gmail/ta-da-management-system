@@ -99,6 +99,7 @@ export async function loadPolicy(): Promise<Policy> {
 export interface EmployeeRow extends SessionUser {
   password: string;
   status: string;
+  authId: string;
   _row: string;
 }
 
@@ -119,6 +120,7 @@ function parseRoles(raw: string | undefined): Role[] {
 
 export function toEmployee(r: Row & { _row: string }): EmployeeRow {
   return {
+    authId: r.auth_id,
     employeeId: r.employee_id,
     name: r.name,
     email: String(r.email || "").trim(),
@@ -154,6 +156,22 @@ export async function allEmployees(): Promise<EmployeeRow[]> {
   const rows = (await readTab("Employees")).map(toEmployee);
   employeeCache = { rows, at: Date.now() };
   return rows;
+}
+
+/**
+ * Records the identity provider's subject id against the employee the first
+ * time they sign in with SSO, so the sheet shows which account each person
+ * actually authenticates with. Only writes when it changed, so a normal
+ * sign-in costs no extra write.
+ */
+export async function rememberAuthId(employeeRow: string, authId: string): Promise<void> {
+  if (!employeeRow || !authId) return;
+  const rows = await readTab("Employees");
+  const row = rows.find((r) => r._row === employeeRow);
+  if (!row || row.auth_id === authId) return;
+  const { _row, ...rest } = row;
+  await updateRow("Employees", employeeRow, { ...rest, auth_id: authId });
+  invalidateEmployees();
 }
 
 // ── Hierarchy, derived from the LineManagerID column ────────────────────────

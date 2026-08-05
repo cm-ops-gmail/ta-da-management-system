@@ -41,29 +41,31 @@ export const TABS: TabSpec[] = [
   {
     title: "Employees",
     color: BLUE,
-    widths: [110, 170, 240, 100, 90, 70, 150, 180, 130, 210, 130, 150, 90],
+    widths: [230, 110, 170, 240, 100, 90, 70, 150, 180, 130, 210, 130, 150, 90],
     headers: [
+      // Written on first SSO sign-in: the identity provider's stable subject id.
+      "auth_id",
       "employee_id", "name", "email", "password", "gender", "band",
       "department", "designation", "line_manager_id", "roles",
       "payment_method", "account_number", "status",
     ],
     seed: [
-      ["EMP-1001", "Ariful Islam", "ariful@10ms.com", "1234", "Male", "G", "Sales", "Sales Executive", "EMP-1005", "user", "bKash", "01700000001", "Active"],
-      ["EMP-1002", "Nusrat Jahan", "nusrat@10ms.com", "1234", "Female", "F", "Academic", "Content Producer", "EMP-1005", "user", "bKash", "01700000002", "Active"],
-      ["EMP-1003", "Tanvir Ahmed", "tanvir@10ms.com", "1234", "Male", "D", "Operations", "Manager, Operations", "EMP-1006", "user", "Bank", "1234500001", "Active"],
-      ["EMP-1004", "Sadia Rahman", "sadia@10ms.com", "1234", "Female", "E2", "Marketing", "Marketing Associate", "EMP-1003", "user", "Nagad", "01700000004", "Active"],
-      ["EMP-1005", "Rakib Hasan", "rakib@10ms.com", "1234", "Male", "C", "Sales", "Head of Sales", "EMP-1006", "user", "Bank", "1234500002", "Active"],
-      ["EMP-1006", "Farhana Akter", "farhana@10ms.com", "1234", "Female", "B", "PeopleOps", "Director, PeopleOps", "", "hr", "Bank", "1234500003", "Active"],
-      ["EMP-2001", "Admin Desk", "admin@10ms.com", "1234", "Male", "D", "Administration", "Admin Officer", "EMP-1006", "admin", "Bank", "1234500004", "Active"],
+      ["", "EMP-1001", "Ariful Islam", "ariful@10ms.com", "1234", "Male", "G", "Sales", "Sales Executive", "EMP-1005", "user", "bKash", "01700000001", "Active"],
+      ["", "EMP-1002", "Nusrat Jahan", "nusrat@10ms.com", "1234", "Female", "F", "Academic", "Content Producer", "EMP-1005", "user", "bKash", "01700000002", "Active"],
+      ["", "EMP-1003", "Tanvir Ahmed", "tanvir@10ms.com", "1234", "Male", "D", "Operations", "Manager, Operations", "EMP-1006", "user", "Bank", "1234500001", "Active"],
+      ["", "EMP-1004", "Sadia Rahman", "sadia@10ms.com", "1234", "Female", "E2", "Marketing", "Marketing Associate", "EMP-1003", "user", "Nagad", "01700000004", "Active"],
+      ["", "EMP-1005", "Rakib Hasan", "rakib@10ms.com", "1234", "Male", "C", "Sales", "Head of Sales", "EMP-1006", "user", "Bank", "1234500002", "Active"],
+      ["", "EMP-1006", "Farhana Akter", "farhana@10ms.com", "1234", "Female", "B", "PeopleOps", "Director, PeopleOps", "", "hr", "Bank", "1234500003", "Active"],
+      ["", "EMP-2001", "Admin Desk", "admin@10ms.com", "1234", "Male", "D", "Administration", "Admin Officer", "EMP-1006", "admin", "Bank", "1234500004", "Active"],
       // The roles column names only the extra desk someone sits at: admin, hr
       // or finance. Everyone can raise a claim regardless, so plain staff are
       // just "user". Line manager is not written here either — it comes from
       // line_manager_id, so Rakib (EMP-1005) automatically approves for
       // everyone pointing at him.
-      ["EMP-3001", "Nafisa Karim", "finance@10ms.com", "1234", "Female", "D", "Finance", "Finance Officer", "EMP-1006", "finance", "Bank", "1234500005", "Active"],
-      ["EMP-3002", "Mahin Chowdhury", "finance2@10ms.com", "1234", "Male", "E1", "Finance", "Finance Executive", "EMP-1006", "finance", "Bank", "1234500007", "Active"],
-      ["EMP-4001", "Shirin Akhter", "hr@10ms.com", "1234", "Female", "C", "PeopleOps", "HR Business Partner", "EMP-1006", "hr", "Bank", "1234500006", "Active"],
-      ["EMP-4002", "Sumaiya Islam", "hr2@10ms.com", "1234", "Female", "E1", "PeopleOps", "HR Executive", "EMP-1006", "hr", "Bank", "1234500008", "Active"],
+      ["", "EMP-3001", "Nafisa Karim", "finance@10ms.com", "1234", "Female", "D", "Finance", "Finance Officer", "EMP-1006", "finance", "Bank", "1234500005", "Active"],
+      ["", "EMP-3002", "Mahin Chowdhury", "finance2@10ms.com", "1234", "Male", "E1", "Finance", "Finance Executive", "EMP-1006", "finance", "Bank", "1234500007", "Active"],
+      ["", "EMP-4001", "Shirin Akhter", "hr@10ms.com", "1234", "Female", "C", "PeopleOps", "HR Business Partner", "EMP-1006", "hr", "Bank", "1234500006", "Active"],
+      ["", "EMP-4002", "Sumaiya Islam", "hr2@10ms.com", "1234", "Female", "E1", "PeopleOps", "HR Executive", "EMP-1006", "hr", "Bank", "1234500008", "Active"],
     ],
   },
 
