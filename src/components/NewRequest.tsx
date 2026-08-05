@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, Check, ChevronDown, FileUp, Link as LinkIcon, Loader2, Plus, Send, Trash2, Users,
+  ArrowLeft, ArrowRight, Check, ChevronDown, FileText, FileUp, Loader2, Plus, Send, Trash2, Users,
 } from "lucide-react";
 import { api } from "../api.js";
 import {
@@ -940,6 +940,12 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 // ── Step 5 ──────────────────────────────────────────────────────────────────
 
+interface Upload {
+  name: string;
+  link: string;
+  sizeBytes: number;
+}
+
 function StepDocuments({
   draft, set, documentTypes, payable, currency,
 }: {
@@ -949,9 +955,12 @@ function StepDocuments({
   payable: number;
   currency: string;
 }) {
-  const [uploading, setUploading] = useState(0);
-  const [error, setError] = useState("");
-  const [maxBytes, setMaxBytes] = useState(4 * 1024 * 1024);
+  // Names are only known for files uploaded in this session; a claim being
+  // edited comes back with links alone, so those fall back to the URL.
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const [progress, setProgress] = useState<{ name: string; pct: number }[]>([]);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [maxBytes, setMaxBytes] = useState(50 * 1024 * 1024);
   const [enabled, setEnabled] = useState(true);
   const [dragging, setDragging] = useState(false);
 
@@ -962,39 +971,51 @@ function StepDocuments({
   }, []);
 
   const maxMB = Math.round(maxBytes / 1024 / 1024);
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 1024 * 1024 ? 2 : 1)} MB`;
+  const nameFor = (link: string) => uploads.find((u) => u.link === link)?.name || link;
 
   async function accept(list: FileList | null) {
     if (!list?.length) return;
-    setError("");
     const files = Array.from(list);
-    const links = [...draft.documentLinks];
+    setErrors([]);
 
-    for (let i = 0; i < files.length; i += 1) {
-      const file = files[i];
-      if (file.size > maxBytes) {
-        setError(`${file.name} is larger than the ${maxMB} MB limit.`);
-        continue;
-      }
-      setUploading((n) => n + 1);
+    const tooBig = files.filter((f) => f.size > maxBytes);
+    if (tooBig.length) {
+      setErrors(tooBig.map((f) => `${f.name} is ${mb(f.size)} — the limit is ${maxMB} MB.`));
+    }
+    const queue = files.filter((f) => f.size <= maxBytes);
+    if (!queue.length) return;
+
+    setProgress(queue.map((f) => ({ name: f.name, pct: 0 })));
+
+    // Sequential on purpose: several 50 MB files at once would fight for
+    // bandwidth and make every progress bar crawl.
+    for (const file of queue) {
       try {
-        // Index continues from what is already attached, so a second batch
-        // does not reuse a name from the first.
-        const saved = await api.upload(file, links.length);
-        links.push(saved.link);
-        set({ documentLinks: [...links] });
+        const saved = await api.upload(file, draft.documentLinks.length + uploads.length, (fraction) => {
+          setProgress((p) => p.map((x) => (x.name === file.name ? { ...x, pct: Math.round(fraction * 100) } : x)));
+        });
+        setUploads((u) => [...u, { name: saved.name, link: saved.link, sizeBytes: saved.sizeBytes }]);
+        set({ documentLinks: [...draft.documentLinks, saved.link] });
+        draft = { ...draft, documentLinks: [...draft.documentLinks, saved.link] };
       } catch (err) {
-        setError((err as Error).message);
+        setErrors((e) => [...e, `${file.name}: ${(err as Error).message}`]);
       } finally {
-        setUploading((n) => n - 1);
+        setProgress((p) => p.filter((x) => x.name !== file.name));
       }
     }
+  }
+
+  function remove(link: string) {
+    set({ documentLinks: draft.documentLinks.filter((l) => l !== link) });
+    setUploads((u) => u.filter((x) => x.link !== link));
   }
 
   return (
     <>
       <Card
         title="Documents"
-        subtitle="Attach your tickets, bills, receipts, invoices, hotel bills or approval mail. They are saved to the shared Drive folder and renamed with your employee ID, name and date."
+        subtitle="Attach tickets, bills, receipts, invoices, hotel bills or approval mail. Files are stored in the shared Drive and renamed with your employee ID, name and date."
       >
         <div className="space-y-4">
           <Field
@@ -1011,10 +1032,7 @@ function StepDocuments({
           </Field>
 
           {!enabled && (
-            <Notice
-              tone="warn"
-              items={["File uploads are not configured on this deployment yet — DRIVE_FOLDER_ID is not set."]}
-            />
+            <Notice tone="warn" items={["File uploads are not configured on this deployment — DRIVE_FOLDER_ID is not set."]} />
           )}
 
           <label
@@ -1028,7 +1046,7 @@ function StepDocuments({
             <FileUp size={22} className="text-slate-400" />
             <span className="text-sm font-semibold text-slate-700">Choose files, or drag them here</span>
             <span className="text-xs text-slate-500">
-              Image, PDF, Word, Excel or CSV · up to {maxMB} MB each · camera supported on mobile
+              Image, PDF, Word, Excel, CSV — any type · up to {maxMB} MB each · pick as many as you need
             </span>
             <input
               type="file"
@@ -1039,36 +1057,52 @@ function StepDocuments({
             />
           </label>
 
-          {uploading > 0 && (
-            <p className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 size={15} className="animate-spin" /> Uploading {uploading} file(s)…
-            </p>
+          {progress.length > 0 && (
+            <ul className="space-y-2 rounded-xl border border-slate-200 p-3">
+              {progress.map((p) => (
+                <li key={p.name}>
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="min-w-0 flex-1 truncate font-medium text-slate-700">{p.name}</span>
+                    <span className="shrink-0 tabular-nums text-slate-500">{p.pct}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${p.pct}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
 
-          {error && <Notice tone="error" items={[error]} />}
+          {errors.length > 0 && <Notice tone="error" items={errors} />}
 
           {draft.documentLinks.length > 0 && (
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-              {draft.documentLinks.map((link, i) => (
-                <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                  <LinkIcon size={15} className="shrink-0 text-slate-400" />
-                  <a
-                    href={link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-w-0 flex-1 truncate font-medium text-slate-700 hover:underline"
-                  >
-                    {link}
-                  </a>
-                  <button
-                    onClick={() => set({ documentLinks: draft.documentLinks.filter((_, idx) => idx !== i) })}
-                    className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                    aria-label="Remove"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </li>
-              ))}
+              {draft.documentLinks.map((link) => {
+                const up = uploads.find((u) => u.link === link);
+                return (
+                  <li key={link} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                    <FileText size={15} className="shrink-0 text-slate-400" />
+                    <span className="min-w-0 flex-1">
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate font-medium text-slate-700 hover:underline"
+                      >
+                        {nameFor(link)}
+                      </a>
+                      {up && <span className="text-xs text-slate-400">{mb(up.sizeBytes)}</span>}
+                    </span>
+                    <button
+                      onClick={() => remove(link)}
+                      className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      aria-label="Remove"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

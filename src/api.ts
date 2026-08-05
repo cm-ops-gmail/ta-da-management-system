@@ -99,20 +99,51 @@ export interface EmployeeLite {
 
 export const api = {
   uploadConfig: () => call<{ enabled: boolean; maxBytes: number }>("/uploads/config"),
-  /** Sends the raw bytes; the name and type ride along as query parameters. */
-  upload: async (file: File, index: number) => {
-    const q = new URLSearchParams({ name: file.name, type: file.type || "application/octet-stream", index: String(index) });
-    const res = await fetch(`/api/uploads?${q}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getToken()}`,
-        "Content-Type": file.type || "application/octet-stream",
-      },
-      body: file,
+
+  /**
+   * Uploads one file straight to Google Drive. The server only opens a
+   * resumable session and finalises afterwards — the bytes never pass through
+   * it, which is what allows files far larger than a serverless request body.
+   */
+  upload: async (
+    file: File,
+    index: number,
+    onProgress?: (fraction: number) => void,
+  ): Promise<{ id: string; name: string; link: string; sizeBytes: number }> => {
+    const { uploadUrl } = await post<{ uploadUrl: string; name: string }>("/uploads/session", {
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      size: file.size,
+      index,
     });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `Upload failed (${res.status})`);
-    return body.file as { id: string; name: string; link: string; sizeBytes: number; originalName: string };
+
+    const uploaded = await new Promise<{ id: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", uploadUrl, true);
+      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error("Drive accepted the file but returned an unexpected response."));
+          }
+        } else {
+          reject(new Error(`Drive rejected the upload (${xhr.status}).`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("The upload was interrupted. Check your connection and try again."));
+      xhr.send(file);
+    });
+
+    const { file: saved } = await post<{ file: { id: string; name: string; link: string; sizeBytes: number } }>(
+      "/uploads/finish",
+      { fileId: uploaded.id },
+    );
+    return saved;
   },
 
   /** Which sign-in methods this deployment offers. */

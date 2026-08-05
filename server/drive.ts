@@ -1,53 +1,56 @@
 /**
  * Uploading claim documents to Google Drive.
  *
- * A service account has no storage quota of its own, so it cannot own a file.
- * Google offers exactly two ways round that, and one of them has to be set up
- * before uploads work:
+ * Files go to a **Shared Drive**, which is what makes this work at all: a
+ * service account has no storage quota of its own and cannot own a file, but
+ * in a Shared Drive the storage belongs to the organisation. (A folder in a
+ * personal My Drive fails with "Service Accounts do not have storage quota"
+ * however it is shared.)
  *
- *   1. Put the folder in a **Shared Drive** and give the service account
- *      Content Manager on it. Storage is billed to the organisation, so the
- *      service account never needs quota. Nothing else to configure.
- *
- *   2. Turn on **domain-wide delegation** for the service account and set
- *      GOOGLE_IMPERSONATE_SUBJECT to a real user in the domain. Files are then
- *      created as that person and counted against their quota, which is what
- *      makes an ordinary My Drive folder work.
- *
- * Without either, Drive answers "Service Accounts do not have storage quota"
- * — which `uploadFile` turns into a message saying exactly that.
+ * The browser uploads straight to Google rather than through this server. A
+ * serverless request body is capped at a few megabytes, so a 50 MB receipt
+ * could never be relayed; instead the server opens a *resumable session* —
+ * a one-shot, pre-authorised URL — and the browser PUTs the bytes to that.
  */
 
-import { google, type drive_v3 } from "googleapis";
-import { Readable } from "stream";
+import { google } from "googleapis";
 
 export const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || "";
 
-/** Requests bigger than this are refused; Vercel caps a request body at ~4.5 MB. */
-export const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_MB || 4) * 1024 * 1024;
+/** Largest single file. The bytes never touch this server, so this is generous. */
+export const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_MB || 50) * 1024 * 1024;
 
-let client: drive_v3.Drive | null = null;
-
-function driveClient(): drive_v3.Drive {
-  if (client) return client;
-  const subject = process.env.GOOGLE_IMPERSONATE_SUBJECT || undefined;
-  const auth = new google.auth.JWT({
-    email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/drive"],
-    // Only set when domain-wide delegation is configured; otherwise the
-    // service account acts as itself and needs a Shared Drive.
-    subject,
-  });
-  client = google.drive({ version: "v3", auth });
-  return client;
-}
+/**
+ * Whether each uploaded file is made readable by anyone with the link.
+ *
+ * Approvers are not members of the Shared Drive, so without this they get
+ * "Request access" when they click a document on a claim. Set
+ * DRIVE_PUBLIC_FILES=false if the Drive is shared with everyone another way.
+ */
+const PUBLIC_FILES = String(process.env.DRIVE_PUBLIC_FILES || "true").toLowerCase() !== "false";
 
 export class DriveError extends Error {
   constructor(message: string, readonly status = 502) {
     super(message);
   }
 }
+
+let jwt: InstanceType<typeof google.auth.JWT> | null = null;
+
+function auth() {
+  if (jwt) return jwt;
+  jwt = new google.auth.JWT({
+    email: process.env.GOOGLE_CLIENT_EMAIL,
+    key: (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+    scopes: ["https://www.googleapis.com/auth/drive"],
+    // Only set when domain-wide delegation is in use; a Shared Drive does not
+    // need it.
+    subject: process.env.GOOGLE_IMPERSONATE_SUBJECT || undefined,
+  });
+  return jwt;
+}
+
+const drive = () => google.drive({ version: "v3", auth: auth() });
 
 /**
  * Builds the stored file name: employee id, person, date — plus an index when
@@ -68,54 +71,95 @@ export function documentFileName(
   return `${clean(employeeId)}-${clean(employeeName)}-${date}${suffix}${ext}`;
 }
 
-export interface UploadedFile {
-  id: string;
-  name: string;
-  link: string;
-  sizeBytes: number;
-}
-
-/** Puts one file in the configured folder and returns a shareable link. */
-export async function uploadFile(
+/**
+ * Opens a resumable upload session and returns the URL the browser should PUT
+ * the file to. The URL carries its own authorisation and expires, so handing
+ * it to the browser exposes nothing about the service account.
+ */
+export async function createUploadSession(
   name: string,
   mimeType: string,
-  body: Buffer,
-): Promise<UploadedFile> {
+  sizeBytes: number,
+): Promise<{ uploadUrl: string; name: string }> {
   if (!DRIVE_FOLDER_ID) {
     throw new DriveError("File uploads are not configured — set DRIVE_FOLDER_ID.", 503);
   }
-  if (!body.length) throw new DriveError("The file is empty.", 400);
-  if (body.length > MAX_UPLOAD_BYTES) {
-    throw new DriveError(`That file is larger than the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB limit.`, 413);
+  if (!sizeBytes) throw new DriveError("The file is empty.", 400);
+  if (sizeBytes > MAX_UPLOAD_BYTES) {
+    throw new DriveError(
+      `That file is ${(sizeBytes / 1024 / 1024).toFixed(1)} MB — the limit is ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`,
+      413,
+    );
   }
 
-  try {
-    const res = await driveClient().files.create({
-      requestBody: { name, parents: [DRIVE_FOLDER_ID] },
-      media: { mimeType: mimeType || "application/octet-stream", body: Readable.from(body) },
-      fields: "id,name,webViewLink,size",
-      supportsAllDrives: true,
-    });
-    const id = res.data.id!;
-    return {
-      id,
-      name: res.data.name || name,
-      // webViewLink is present for files the caller can see; fall back to the
-      // canonical view URL so a link always comes back.
-      link: res.data.webViewLink || `https://drive.google.com/file/d/${id}/view`,
-      sizeBytes: Number(res.data.size) || body.length,
-    };
-  } catch (err) {
-    const message = (err as Error).message || "";
-    if (/storage quota/i.test(message)) {
+  const token = await auth().getAccessToken();
+  const accessToken = typeof token === "string" ? token : token?.token;
+  if (!accessToken) throw new DriveError("Could not authenticate against Drive.", 502);
+
+  const res = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files" +
+      "?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink,size",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": mimeType || "application/octet-stream",
+        "X-Upload-Content-Length": String(sizeBytes),
+      },
+      body: JSON.stringify({ name, parents: [DRIVE_FOLDER_ID] }),
+    },
+  );
+
+  const uploadUrl = res.headers.get("location");
+  if (!res.ok || !uploadUrl) {
+    const detail = await res.text().catch(() => "");
+    if (/storage quota/i.test(detail)) {
       throw new DriveError(
-        "Drive rejected the upload: a service account has no storage of its own. Move the folder into a Shared Drive and give the service account Content Manager, or switch on domain-wide delegation and set GOOGLE_IMPERSONATE_SUBJECT.",
+        "Drive rejected the upload: the target is not a Shared Drive, and a service account has no storage of its own.",
         503,
       );
     }
-    if (/File not found|notFound/i.test(message)) {
-      throw new DriveError("The Drive folder was not found, or is not shared with the service account.", 503);
+    throw new DriveError(`Drive would not start the upload (${res.status}). ${detail.slice(0, 200)}`, 502);
+  }
+  return { uploadUrl, name };
+}
+
+/**
+ * Called once the browser has finished putting the bytes. Grants link-readable
+ * access so approvers — who are not members of the Shared Drive — can open the
+ * document from the claim, and returns the link to store on the request.
+ */
+export async function finishUpload(fileId: string): Promise<{ id: string; name: string; link: string; sizeBytes: number }> {
+  if (!fileId) throw new DriveError("No file id was supplied.", 400);
+
+  if (PUBLIC_FILES) {
+    try {
+      await drive().permissions.create({
+        fileId,
+        requestBody: { role: "reader", type: "anyone" },
+        supportsAllDrives: true,
+      });
+    } catch (err) {
+      // Not fatal: the file is uploaded either way, and the Drive may already
+      // be shared with everyone who needs it.
+      console.warn(`[uploads] could not make ${fileId} link-readable:`, (err as Error).message);
     }
-    throw new DriveError(`Drive refused the upload: ${message}`, 502);
+  }
+
+  try {
+    const res = await drive().files.get({
+      fileId,
+      fields: "id,name,webViewLink,size",
+      supportsAllDrives: true,
+    });
+    return {
+      id: res.data.id!,
+      name: res.data.name || "",
+      link: res.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+      sizeBytes: Number(res.data.size) || 0,
+    };
+  } catch (err) {
+    throw new DriveError(`Uploaded, but Drive would not describe the file: ${(err as Error).message}`, 502);
   }
 }

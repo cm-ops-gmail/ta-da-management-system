@@ -17,7 +17,7 @@ import {
 import { hasRole, signToken, verifyToken, type Session } from "./auth.js";
 import { TenMSVerifyError, verifyAccessToken } from "./tenms.js";
 import {
-  DRIVE_FOLDER_ID, DriveError, documentFileName, MAX_UPLOAD_BYTES, uploadFile,
+  createUploadSession, DRIVE_FOLDER_ID, DriveError, documentFileName, finishUpload, MAX_UPLOAD_BYTES,
 } from "./drive.js";
 import {
   allEmployees, deptHeadIdFor, fromRequest, invalidateEmployees, invalidatePolicy, loadPolicy,
@@ -196,35 +196,34 @@ app.get("/api/uploads/config", requireAuth, handler(async (_req, res) => {
 }));
 
 /**
- * Receives one file and stores it in the shared Drive folder, named
- * `employeeId-name-date`. The raw bytes are the request body; the original
- * file name and type ride along as query parameters.
+ * Step 1 of an upload: open a resumable session and hand the browser a URL to
+ * PUT the file to. The bytes go straight from the browser to Google, so a
+ * 50 MB file is never limited by this server's request size.
  */
-app.post(
-  "/api/uploads",
-  requireAuth,
-  express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES + 1024 * 1024 }),
-  handler(async (req, res) => {
-    const original = String(req.query.name || "file");
-    const mimeType = String(req.query.type || "application/octet-stream");
-    const index = Number(req.query.index) || 0;
-    const body = req.body as Buffer;
+app.post("/api/uploads/session", requireAuth, handler(async (req, res) => {
+  const original = String(req.body?.name || "file");
+  const mimeType = String(req.body?.mimeType || "application/octet-stream");
+  const size = Number(req.body?.size) || 0;
+  const index = Number(req.body?.index) || 0;
 
-    if (!Buffer.isBuffer(body) || !body.length) {
-      res.status(400).json({ error: "No file content was received." });
-      return;
-    }
+  const name = documentFileName(req.session.employeeId, req.session.name, original, index);
+  try {
+    res.json(await createUploadSession(name, mimeType, size));
+  } catch (err) {
+    const e = err as DriveError;
+    res.status(e.status || 502).json({ error: e.message });
+  }
+}));
 
-    const name = documentFileName(req.session.employeeId, req.session.name, original, index);
-    try {
-      const file = await uploadFile(name, mimeType, body);
-      res.json({ file: { ...file, originalName: original } });
-    } catch (err) {
-      const e = err as DriveError;
-      res.status(e.status || 502).json({ error: e.message });
-    }
-  }),
-);
+/** Step 2: the browser reports the new file id; we share it and return the link. */
+app.post("/api/uploads/finish", requireAuth, handler(async (req, res) => {
+  try {
+    res.json({ file: await finishUpload(String(req.body?.fileId || "")) });
+  } catch (err) {
+    const e = err as DriveError;
+    res.status(e.status || 502).json({ error: e.message });
+  }
+}));
 
 // ── Visibility and stage ownership ──────────────────────────────────────────
 
