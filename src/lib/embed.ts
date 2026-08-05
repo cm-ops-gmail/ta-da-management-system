@@ -3,19 +3,20 @@
  *
  * When a host owns the sign-in session, this app must not offer to end it — a
  * "Sign out" here would leave the surrounding page signed in and this panel
- * signed out. The signal is `?source=hq`, and only that: being inside a frame
- * is not enough on its own, because the app is embedded in places that do not
- * own the session.
+ * signed out.
  *
- * The marker must be on the **iframe's src**:
+ * Two signals, either of which is enough:
  *
- *     <iframe src="https://…vercel.app/?source=hq">
+ *  - `?source=hq` on this page's own URL. To reach here it has to be on the
+ *    **iframe's src**; putting it only on the surrounding page's address does
+ *    nothing, since a cross-origin frame cannot read its parent's location and
+ *    the referrer arrives trimmed to a bare origin. A full referrer is honoured
+ *    when one is sent, but nothing is built on that.
  *
- * Putting it only on the surrounding page's own address does nothing. A
- * cross-origin frame cannot read its parent's location, and browsers trim the
- * referrer to a bare origin, so the parent's query string never reaches this
- * code. A full referrer is honoured when one is sent, but nothing should be
- * built on that.
+ *  - Being inside a frame at all. HQ is the only site that embeds this app, so
+ *    this is a dependable stand-in, and unlike the marker it needs nothing from
+ *    HQ's embed code. Comparing the two window references is safe across
+ *    origins — it is reading a *property* off window.top that would throw.
  */
 
 const KEY = "ta-perdiem-source";
@@ -84,7 +85,10 @@ export const IS_FRAMED = detectFramed();
 
 /**
  * True when something other than this app owns the sign-in session, so the app
- * must not offer to end it. Driven by the marker alone — see the note above on
- * where it has to be set.
+ * must not offer to end it.
+ *
+ * Either signal is enough. The marker is the explicit one but cannot be relied
+ * on, so being framed stands in for it: the only site that embeds this app is
+ * the HQ portal, and that check needs nothing from HQ's embed code.
  */
-export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq";
+export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq" || IS_FRAMED;
