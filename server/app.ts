@@ -823,7 +823,7 @@ async function advanceStepFor(
 ): Promise<{ action: string; label: string } | null> {
   if (!r.advanceRequested || r.settledAt) return null;
   if (r.advanceStatus === "approved") {
-    return hasRole(session, "finance", "hr") ? { action: "settle", label: "Record settlement" } : null;
+    return hasRole(session, "finance", "hr", "admin") ? { action: "settle", label: "Record settlement" } : null;
   }
   if (r.advanceStatus === "awaiting_dept_head") {
     return session.employeeId === await deptHeadIdFor(r.employeeId)
@@ -831,7 +831,7 @@ async function advanceStepFor(
       : null;
   }
   if (r.advanceStatus === "manager_approved") {
-    return hasRole(session, "hr") ? { action: "hr_approve", label: "HR approval" } : null;
+    return hasRole(session, "hr", "admin") ? { action: "hr_approve", label: "HR approval" } : null;
   }
   return null;
 }
@@ -879,8 +879,9 @@ app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
   let stageStatus = "";
 
   if (action === "hr_approve") {
-    if (!hasRole(req.session, "hr")) {
-      res.status(403).json({ error: "Only HR can approve at this step." });
+    // Administration can do anything HR can, so it stands in here too.
+    if (!hasRole(req.session, "hr", "admin")) {
+      res.status(403).json({ error: "Only HR or Administration can approve at this step." });
       return;
     }
     updated.advanceApproved = Number(req.body?.amount) || record.advanceRequested;
@@ -898,7 +899,7 @@ app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
     stageStatus = "Approved";
   } else if (action === "reject") {
     const isHead = req.session.employeeId === await deptHeadIdFor(record.employeeId);
-    if (!hasRole(req.session, "hr", "finance") && !isHead) {
+    if (!hasRole(req.session, "hr", "finance", "admin") && !isHead) {
       res.status(403).json({ error: "You cannot reject this advance." });
       return;
     }

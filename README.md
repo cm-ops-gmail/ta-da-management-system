@@ -77,6 +77,10 @@ column only ever names the extra desk somebody sits at: a Finance person's cell 
 `finance`, never `user,finance`. Admin, HR and Finance all keep the ability to file their own
 claims.
 
+Administration can do everything HR can — approve an advance at the HR step,
+reject one, and record its settlement — plus its own stage in the claim chain.
+Finance alone releases money.
+
 **You never write "manager" or "department head" anywhere.** Both come from the `LineManagerID`
 column, which you are maintaining regardless:
 
