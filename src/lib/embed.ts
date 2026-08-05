@@ -1,18 +1,21 @@
 /**
  * Who is hosting this page.
  *
- * Embedded in another site the app is not where anyone signs in or out — the
- * host owns that session, and a "Sign out" here would leave the surrounding
- * page signed in and this panel signed out.
+ * When a host owns the sign-in session, this app must not offer to end it — a
+ * "Sign out" here would leave the surrounding page signed in and this panel
+ * signed out. The signal is `?source=hq`, and only that: being inside a frame
+ * is not enough on its own, because the app is embedded in places that do not
+ * own the session.
  *
- * Detection is by being framed, not by a marker on the URL. `?source=hq` only
- * ever appears on HQ's *own* address; the iframe's src does not carry it, and a
- * cross-origin frame cannot read its parent's location — browsers trim the
- * referrer to a bare origin, so the surrounding query string is invisible from
- * in here. Being framed is the one thing that is always readable, and it is
- * also the thing that actually matters. The marker is still honoured when it is
- * put on the iframe src, which is the only way to get this behaviour on a page
- * opened directly.
+ * The marker must be on the **iframe's src**:
+ *
+ *     <iframe src="https://…vercel.app/?source=hq">
+ *
+ * Putting it only on the surrounding page's own address does nothing. A
+ * cross-origin frame cannot read its parent's location, and browsers trim the
+ * referrer to a bare origin, so the parent's query string never reaches this
+ * code. A full referrer is honoured when one is sent, but nothing should be
+ * built on that.
  */
 
 const KEY = "ta-perdiem-source";
@@ -81,6 +84,7 @@ export const IS_FRAMED = detectFramed();
 
 /**
  * True when something other than this app owns the sign-in session, so the app
- * must not offer to end it.
+ * must not offer to end it. Driven by the marker alone — see the note above on
+ * where it has to be set.
  */
-export const HOST_OWNS_SESSION = IS_FRAMED || EMBED_SOURCE === "hq";
+export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq";
