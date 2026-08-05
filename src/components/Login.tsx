@@ -3,6 +3,7 @@ import { ExternalLink, KeyRound, Loader2 } from "lucide-react";
 import { LoginButton, useTenMSAuth } from "@tenminuteschool/auth-admin-react";
 import { api, setToken } from "../api.js";
 import { CLIENT_ID, REDIRECT_URI } from "../lib/auth.js";
+import { IS_FRAMED } from "../lib/embed.js";
 import type { SessionUser } from "../../shared/types.js";
 
 /**
@@ -32,7 +33,7 @@ export default function Login({
   // The sign-in popup talks back to its opener with postMessage, which the
   // browser's Cross-Origin-Opener-Policy blocks when the opener is a
   // cross-origin frame. Signing in has to happen in a top-level tab.
-  const embedded = typeof window !== "undefined" && window.top !== window.self;
+  const embedded = IS_FRAMED;
 
   if (!CLIENT_ID) {
     return (

@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { useTenMSAuth } from "@tenminuteschool/auth-admin-react";
 import { api, clearToken, getToken, setToken, setUnauthorizedHandler } from "./api.js";
-import { HOSTED_BY_HQ } from "./lib/embed.js";
+import { HOST_OWNS_SESSION } from "./lib/embed.js";
 import type { Policy, RequestDraft, SessionUser } from "../shared/types.js";
 import Login from "./components/Login.js";
 import Dashboard from "./components/Dashboard.js";
@@ -279,9 +279,9 @@ export default function App() {
             <p className="truncate text-sm font-semibold text-slate-700">{user.name}</p>
             <p className="truncate text-xs text-slate-400">Band {user.band} · {user.department}</p>
           </div>
-          {/* HQ owns the session when it hosts this panel — signing out here
-              would strand the two out of step. */}
-          {!HOSTED_BY_HQ && (
+          {/* The host owns the session when this panel is embedded — signing
+              out here would strand the two out of step. */}
+          {!HOST_OWNS_SESSION && (
             <button
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
               onClick={() => void signOut()}

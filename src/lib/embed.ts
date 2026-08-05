@@ -1,15 +1,18 @@
 /**
  * Who is hosting this page.
  *
- * Embedded in the HQ portal the app is not where anyone signs in or out — HQ
- * owns that session, and a "Sign out" here would leave the surrounding page
- * logged in and this panel logged out. HQ marks the embed with `?source=hq`
- * and the button disappears.
+ * Embedded in another site the app is not where anyone signs in or out — the
+ * host owns that session, and a "Sign out" here would leave the surrounding
+ * page signed in and this panel signed out.
  *
- * The marker has to be on the *iframe's* src. A cross-origin frame cannot read
- * the parent's URL, and browsers trim the referrer to a bare origin by default,
- * so the query string of the surrounding page is not visible from in here. The
- * referrer is still checked in case HQ sends a full one.
+ * Detection is by being framed, not by a marker on the URL. `?source=hq` only
+ * ever appears on HQ's *own* address; the iframe's src does not carry it, and a
+ * cross-origin frame cannot read its parent's location — browsers trim the
+ * referrer to a bare origin, so the surrounding query string is invisible from
+ * in here. Being framed is the one thing that is always readable, and it is
+ * also the thing that actually matters. The marker is still honoured when it is
+ * put on the iframe src, which is the only way to get this behaviour on a page
+ * opened directly.
  */
 
 const KEY = "ta-perdiem-source";
@@ -53,8 +56,31 @@ function readSource(): string {
   return found || recall();
 }
 
-/** The raw `source` marker, lower-cased — "" when the app was opened directly. */
+/**
+ * True when this page is running inside someone else's frame.
+ *
+ * Comparing the two is safe across origins — it is reading a *property* of
+ * window.top that throws, never the identity check itself.
+ */
+function detectFramed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.top !== window.self;
+  } catch {
+    // A sandboxed frame can make even this throw, and throwing at all means
+    // there is something above us.
+    return true;
+  }
+}
+
+/** The raw `source` marker, lower-cased — "" when no marker was passed. */
 export const EMBED_SOURCE = readSource().toLowerCase();
 
-/** True when the HQ portal is hosting this page and owns the session. */
-export const HOSTED_BY_HQ = EMBED_SOURCE === "hq";
+/** True when this page is embedded in another site. */
+export const IS_FRAMED = detectFramed();
+
+/**
+ * True when something other than this app owns the sign-in session, so the app
+ * must not offer to end it.
+ */
+export const HOST_OWNS_SESSION = IS_FRAMED || EMBED_SOURCE === "hq";
