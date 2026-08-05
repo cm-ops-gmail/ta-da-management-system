@@ -23,44 +23,35 @@ export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) 
     api.authMethods().then((m) => setPasswordAllowed(m.password)).catch(() => {});
   }, []);
 
-  async function finish(accessToken: string) {
-    const { token, user } = await api.tenmsLogin(accessToken);
-    setToken(token);
-    onSignedIn(user);
-  }
-
   if (!CLIENT_ID) {
     return (
       <Shell>
-        <div className="card p-6 text-sm">
-          <p className="font-semibold text-rose-700">Sign-in is not configured.</p>
-          <p className="mt-2 text-slate-600">
-            Set <code className="rounded bg-slate-100 px-1">VITE_TENMS_CLIENT_ID</code> and restart, so the
-            app knows which 10 Minute School client to authenticate against.
+        <Card>
+          <h2 className="text-lg font-bold text-rose-300">Sign-in is not configured</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            Set <code className="rounded bg-white/10 px-1.5 py-0.5 text-slate-200">VITE_TENMS_CLIENT_ID</code>{" "}
+            and restart.
           </p>
-        </div>
+        </Card>
       </Shell>
     );
   }
 
   return (
     <Shell>
-      <div className="card space-y-5 p-6">
-        <div>
-          <h2 className="text-sm font-bold text-slate-800">Sign in to continue</h2>
-          <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Use your 10 Minute School account. We match its email against the Employees sheet and sign you
-            in with your own band, department and role.
-          </p>
-        </div>
+      <Card>
+        <h2 className="text-2xl font-bold text-white">Sign in</h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+          Sign in with your 10MS account to access travel claims and approvals.
+        </p>
 
-        <div className="flex justify-center">
+        <div className="mt-7">
           <LoginButton
             clientId={CLIENT_ID}
             redirectUri={REDIRECT_URI}
             methods={["google"]}
             size="large"
-            text="Continue with 10 Minute School"
+            text="Continue with Google"
             onSuccess={async (response) => {
               setBusy(true);
               setError("");
@@ -71,7 +62,9 @@ export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) 
                 refresh();
                 // The server re-verifies this token with the provider before
                 // trusting any email, then hands back our own app session.
-                await finish(session.accessToken);
+                const { token, user } = await api.tenmsLogin(session.accessToken);
+                setToken(token);
+                onSignedIn(user);
               } catch (err) {
                 setError((err as Error).message);
                 setBusy(false);
@@ -79,9 +72,8 @@ export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) 
             }}
             onError={(err) => {
               setError(err.message || "Sign-in did not complete.");
-              // The usual cause of a failed authorize step is this app's origin
-              // not being on the client's allow-list, which is invisible from
-              // here — so always offer the address that needs registering.
+              // A failed authorize step is almost always this origin missing
+              // from the client's allow-list, which is invisible from here.
               setShowRedirectHint(true);
               setBusy(false);
             }}
@@ -89,32 +81,30 @@ export default function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) 
         </div>
 
         {busy && (
-          <p className="flex items-center justify-center gap-2 text-sm text-slate-500">
+          <p className="mt-5 flex items-center gap-2 text-sm text-slate-400">
             <Loader2 size={15} className="animate-spin" /> Matching your account…
           </p>
         )}
 
         {error && (
-          <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm leading-relaxed text-rose-700">{error}</div>
+          <div className="mt-5 rounded-xl bg-rose-500/10 px-4 py-3 text-sm leading-relaxed text-rose-300 ring-1 ring-rose-500/20">
+            {error}
+          </div>
         )}
 
         {showRedirectHint && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
-            <p className="font-semibold">If the popup showed an error, this address is probably not registered.</p>
-            <p className="mt-1.5">
-              Ask the 10 Minute School auth team to add this exact redirect URI to the client:
-            </p>
-            <code className="mt-1.5 block break-all rounded bg-white/70 px-2 py-1 font-mono">{REDIRECT_URI}</code>
+          <div className="mt-3 rounded-xl bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-200 ring-1 ring-amber-500/20">
+            <p className="font-semibold">This address may not be registered for the client.</p>
+            <code className="mt-1.5 block break-all rounded bg-black/30 px-2 py-1 font-mono">{REDIRECT_URI}</code>
           </div>
         )}
 
         {passwordAllowed && <PasswordFallback onDone={onSignedIn} />}
+      </Card>
 
-        <p className="text-center text-xs leading-relaxed text-slate-400">
-          Not able to get in? Your work email has to exist in the{" "}
-          <span className="font-semibold text-slate-500">Employees</span> tab of the Google Sheet first.
-        </p>
-      </div>
+      <p className="mt-8 text-center text-sm text-slate-500">
+        Access restricted to authorized team members only.
+      </p>
     </Shell>
   );
 }
@@ -131,11 +121,15 @@ function PasswordFallback({ onDone }: { onDone: (user: SessionUser) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const field =
+    "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-100 outline-none " +
+    "placeholder:text-slate-500 focus:border-white/25 focus:ring-2 focus:ring-white/10";
+
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-600"
+        className="mt-5 flex w-full items-center justify-center gap-2 text-xs font-semibold text-slate-500 transition hover:text-slate-300"
       >
         <KeyRound size={13} /> Use a password instead (development only)
       </button>
@@ -144,7 +138,7 @@ function PasswordFallback({ onDone }: { onDone: (user: SessionUser) => void }) {
 
   return (
     <form
-      className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+      className="mt-5 space-y-3 rounded-xl bg-white/5 p-4 ring-1 ring-white/10"
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -161,7 +155,7 @@ function PasswordFallback({ onDone }: { onDone: (user: SessionUser) => void }) {
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Development sign-in</p>
       <input
-        className="field"
+        className={field}
         type="email"
         autoComplete="username"
         placeholder="you@10ms.com"
@@ -170,7 +164,7 @@ function PasswordFallback({ onDone }: { onDone: (user: SessionUser) => void }) {
         required
       />
       <input
-        className="field"
+        className={field}
         type="password"
         autoComplete="current-password"
         placeholder="Password"
@@ -178,25 +172,40 @@ function PasswordFallback({ onDone }: { onDone: (user: SessionUser) => void }) {
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-      {error && <p className="text-xs text-rose-600">{error}</p>}
-      <button className="btn-ghost w-full" disabled={busy}>
+      {error && <p className="text-xs text-rose-300">{error}</p>}
+      <button
+        className="flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-white/15 disabled:opacity-50"
+        disabled={busy}
+      >
         {busy && <Loader2 size={14} className="animate-spin" />} Sign in
       </button>
     </form>
   );
 }
 
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl bg-white/[0.04] p-7 ring-1 ring-white/10 sm:p-8">{children}</div>
+  );
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-full items-center justify-center bg-gradient-to-br from-slate-900 via-brand-700 to-brand-600 p-4 sm:p-6">
+    <div className="flex min-h-full flex-col items-center justify-center bg-[#0f1a2e] px-4 py-10">
       <div className="w-full max-w-md">
-        <div className="mb-6 text-center text-white">
-          {/* The mark is dark, so it sits on a light tile against the gradient. */}
-          <div className="mx-auto mb-4 flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-white/25">
-            <img src="/logo.png" alt="10 Minute School" width={64} height={64} className="size-16 object-contain" />
-          </div>
-          <h1 className="text-lg font-bold sm:text-xl">Transportation Allowance & Per-Diem</h1>
-          <p className="mt-1 text-sm text-white/70">PeopleOps · Travel & Claims</p>
+        <div className="mb-10 flex flex-col items-center">
+          {/* The mark already carries its own dark tile, so it sits straight on
+              the background with nothing behind it. */}
+          <img
+            src="/logo.png"
+            alt="10 Minute School"
+            width={104}
+            height={104}
+            className="size-24 rounded-2xl object-contain sm:size-28"
+          />
+          <h1 className="mt-5 text-center text-xl font-bold text-white sm:text-2xl">
+            Transportation Allowance &amp; Per-Diem
+          </h1>
         </div>
         {children}
       </div>
