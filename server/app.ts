@@ -826,7 +826,8 @@ async function advanceStepFor(
     return hasRole(session, "finance", "hr", "admin") ? { action: "settle", label: "Record settlement" } : null;
   }
   if (r.advanceStatus === "awaiting_dept_head") {
-    return session.employeeId === await deptHeadIdFor(r.employeeId)
+    const head = await deptHeadIdFor(r.employeeId);
+    return session.employeeId === head || hasRole(session, "admin")
       ? { action: "dept_head_approve", label: "Department Head approval" }
       : null;
   }
@@ -872,7 +873,12 @@ app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
   }
 
   const policy = await loadPolicy();
-  const needsDeptHead = record.advanceRequested > cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000);
+  const deptHead = await deptHeadIdFor(record.employeeId);
+  // Escalate only when someone actually sits above the line manager. Without
+  // that check an employee whose manager is already at the top of the chain
+  // lands in "awaiting_dept_head" with nobody able to clear it, ever.
+  const needsDeptHead =
+    record.advanceRequested > cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000) && !!deptHead;
   const stamp = `${req.session.name} <${req.session.email}>`;
   const updated: RequestRecord = { ...record, updatedAt: nowISO() };
   let group: "AdvanceHR" | "AdvanceDeptHead" | undefined;
@@ -889,8 +895,8 @@ app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
     group = "AdvanceHR";
     stageStatus = "Approved";
   } else if (action === "dept_head_approve") {
-    if (req.session.employeeId !== await deptHeadIdFor(record.employeeId)) {
-      res.status(403).json({ error: "Only this employee's Department Head can approve at this step." });
+    if (req.session.employeeId !== deptHead && !hasRole(req.session, "admin")) {
+      res.status(403).json({ error: "Only this employee's Department Head or Administration can approve at this step." });
       return;
     }
     updated.advanceApproved = Number(req.body?.amount) || record.advanceApproved || record.advanceRequested;
@@ -898,7 +904,7 @@ app.post("/api/requests/:id/advance", requireAuth, handler(async (req, res) => {
     group = "AdvanceDeptHead";
     stageStatus = "Approved";
   } else if (action === "reject") {
-    const isHead = req.session.employeeId === await deptHeadIdFor(record.employeeId);
+    const isHead = req.session.employeeId === deptHead;
     if (!hasRole(req.session, "hr", "finance", "admin") && !isHead) {
       res.status(403).json({ error: "You cannot reject this advance." });
       return;

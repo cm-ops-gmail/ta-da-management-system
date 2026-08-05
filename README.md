@@ -88,9 +88,10 @@ column, which you are maintaining regardless:
   the Approval Desk automatically, and see exactly their own reports' claims. Rakib above is a plain
   `user` and still approves Ariful's claims, because Ariful points at him.
 - **Department head** — one level above the approving line manager, i.e. the line manager's own line
-  manager. For Ariful (→ Rakib → Farhana) that is Farhana, so she is the one who approves an advance
-  above the limit. If the line manager is already the top of the chain, the advance simply stops at
-  HR.
+  manager. For Ariful (→ Rakib → Farhana) that is Farhana, so she approves an advance above the
+  limit. Administration can clear that step too. When the line manager is already the top of the
+  chain there is nobody above to escalate to, so the advance is never sent there — the HR /
+  Administration approval is final.
 
 Move a person to a different manager in the sheet and their approvals move with them on the next
 request — nothing else to update.
