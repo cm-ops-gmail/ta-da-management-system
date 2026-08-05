@@ -80,6 +80,7 @@ export async function createUploadSession(
   name: string,
   mimeType: string,
   sizeBytes: number,
+  origin?: string,
 ): Promise<{ uploadUrl: string; name: string }> {
   if (!DRIVE_FOLDER_ID) {
     throw new DriveError("File uploads are not configured — set DRIVE_FOLDER_ID.", 503);
@@ -106,6 +107,11 @@ export async function createUploadSession(
         "Content-Type": "application/json; charset=UTF-8",
         "X-Upload-Content-Type": mimeType || "application/octet-stream",
         "X-Upload-Content-Length": String(sizeBytes),
+        // Google binds CORS to the origin given when the session is created.
+        // Without this the preflight passes but the actual PUT comes back with
+        // no Access-Control-Allow-Origin, so the browser blocks it and the
+        // upload looks like a dropped connection.
+        ...(origin ? { Origin: origin } : {}),
       },
       body: JSON.stringify({ name, parents: [DRIVE_FOLDER_ID] }),
     },

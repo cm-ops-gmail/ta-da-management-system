@@ -208,7 +208,8 @@ app.post("/api/uploads/session", requireAuth, handler(async (req, res) => {
 
   const name = documentFileName(req.session.employeeId, req.session.name, original, index);
   try {
-    res.json(await createUploadSession(name, mimeType, size));
+    // Pass the caller's origin through so Google allows the browser's PUT.
+    res.json(await createUploadSession(name, mimeType, size, req.get("origin") || undefined));
   } catch (err) {
     const e = err as DriveError;
     res.status(e.status || 502).json({ error: e.message });
