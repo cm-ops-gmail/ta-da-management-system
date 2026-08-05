@@ -52,11 +52,14 @@ export const TRACK_STAGES: { key: Status; label: string; column: StageKey }[] = 
 export type StageKey = "Manager" | "Admin" | "Finance" | "Payment";
 
 /**
- * Roles written in the Employees sheet. Being a line manager or a department
- * head is NOT one of them — those are derived from the LineManagerID column,
- * so the hierarchy only ever has to be maintained in one place.
+ * The only four roles. `user` means "can raise and track their own claims" and
+ * everyone has it — the sheet only names the extra desk someone sits at, so a
+ * finance person's cell reads just `finance`, not `user,finance`.
+ *
+ * Line manager and department head are NOT roles: both are derived from the
+ * line_manager_id column, so the hierarchy is maintained in one place only.
  */
-export type Role = "employee" | "admin" | "hr" | "finance";
+export type Role = "user" | "admin" | "hr" | "finance";
 
 export interface SessionUser {
   employeeId: string;

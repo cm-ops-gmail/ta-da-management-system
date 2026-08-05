@@ -33,10 +33,13 @@ export default function DeskDashboard({
 
   if (loading) return <Spinner />;
 
-  const roleLabel = user.roles
-    .filter((r) => r !== "employee")
-    .map((r) => ({ manager: "Line Manager", admin: "Administration", finance: "Finance", hr: "HR", dept_head: "Department Head" }[r] || r))
-    .join(" · ");
+  // "user" is on everyone, so it says nothing about why this desk exists.
+  // Being a line manager is derived from the roster, not a role.
+  const LABELS: Record<string, string> = { admin: "Administration", finance: "Finance", hr: "HR" };
+  const roleLabel = [
+    ...user.roles.filter((r) => r !== "user").map((r) => LABELS[r] || r),
+    ...(user.managesOthers ? ["Line Manager"] : []),
+  ].join(" · ");
 
   const cards = [
     { label: "Waiting for you", value: desk?.pending ?? 0, icon: Inbox, tone: "text-amber-600 bg-amber-50", go: "desk-pending" },

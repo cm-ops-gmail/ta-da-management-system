@@ -59,28 +59,30 @@ Accounts live in the **Employees** tab. Seeded logins all use password `1234`:
 
 | Email | Roles column | Reports to | Band |
 |---|---|---|---|
-| ariful@10ms.com | `employee` | Rakib | G (male) |
-| nusrat@10ms.com | `employee` | Rakib | F (female) |
-| sadia@10ms.com | `employee` | Tanvir | E2 |
-| tanvir@10ms.com | `employee` | Farhana | D |
-| rakib@10ms.com | `employee` | Farhana | C |
-| farhana@10ms.com | `employee,hr` | — | B |
-| admin@10ms.com | `employee,admin` | Farhana | D |
-| finance@10ms.com · finance2@10ms.com | `employee,finance` | Farhana | D · E1 |
-| hr@10ms.com · hr2@10ms.com | `employee,hr` | Farhana | C · E1 |
+| ariful@10ms.com | `user` | Rakib | G (male) |
+| nusrat@10ms.com | `user` | Rakib | F (female) |
+| sadia@10ms.com | `user` | Tanvir | E2 |
+| tanvir@10ms.com | `user` | Farhana | D |
+| rakib@10ms.com | `user` | Farhana | C |
+| farhana@10ms.com | `hr` | — | B |
+| admin@10ms.com | `admin` | Farhana | D |
+| finance@10ms.com · finance2@10ms.com | `finance` | Farhana | D · E1 |
+| hr@10ms.com · hr2@10ms.com | `hr` | Farhana | C · E1 |
 
 ### Only four roles — the hierarchy is not one of them
 
-The `Roles` column holds just `employee`, `admin`, `hr`, `finance`, and **any number of people can
-hold each one**. Add a row to `Employees` (or use Configuration → Employees), give them `finance` or
-`hr`, and they sign in with their own email straight away.
+The roles column holds one of `user`, `admin`, `hr`, `finance`, and **any number of people can hold
+each one**. `user` — raise and track your own claims — is granted to everyone automatically, so the
+column only ever names the extra desk somebody sits at: a Finance person's cell reads just
+`finance`, never `user,finance`. Admin, HR and Finance all keep the ability to file their own
+claims.
 
 **You never write "manager" or "department head" anywhere.** Both come from the `LineManagerID`
 column, which you are maintaining regardless:
 
-- **Line manager** — anyone whose employee ID appears in someone else's `LineManagerID`. They get
-  the Approval Desk automatically, and see exactly their own reports' claims. Rakib above has the
-  plain `employee` role and still approves Ariful's claims, because Ariful points at him.
+- **Line manager** — anyone whose employee ID appears in someone else's `line_manager_id`. They get
+  the Approval Desk automatically, and see exactly their own reports' claims. Rakib above is a plain
+  `user` and still approves Ariful's claims, because Ariful points at him.
 - **Department head** — one level above the approving line manager, i.e. the line manager's own line
   manager. For Ariful (→ Rakib → Farhana) that is Farhana, so she is the one who approves an advance
   above the limit. If the line manager is already the top of the chain, the advance simply stops at

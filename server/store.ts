@@ -102,6 +102,21 @@ export interface EmployeeRow extends SessionUser {
   _row: string;
 }
 
+const ROLES: Role[] = ["user", "admin", "hr", "finance"];
+
+/**
+ * Everyone can raise a claim, so `user` is always granted and never has to be
+ * written in the sheet. `employee` from the earlier layout is read as `user`,
+ * and anything unrecognised is ignored rather than silently granting access.
+ */
+function parseRoles(raw: string | undefined): Role[] {
+  const named = csv(raw)
+    .map((r) => r.toLowerCase())
+    .map((r) => (r === "employee" ? "user" : r))
+    .filter((r): r is Role => (ROLES as string[]).includes(r));
+  return [...new Set<Role>(["user", ...named])];
+}
+
 export function toEmployee(r: Row & { _row: string }): EmployeeRow {
   return {
     employeeId: r.employee_id,
@@ -113,7 +128,7 @@ export function toEmployee(r: Row & { _row: string }): EmployeeRow {
     department: r.department,
     designation: r.designation,
     lineManagerId: r.line_manager_id,
-    roles: (csv(r.roles).length ? csv(r.roles) : ["employee"]) as Role[],
+    roles: parseRoles(r.roles),
     paymentMethod: r.payment_method,
     accountNumber: r.account_number,
     status: r.status || "Active",
