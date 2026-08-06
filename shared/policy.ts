@@ -133,6 +133,8 @@ export interface EligibilityContext {
   travelType: "individual" | "team";
   /** Total travellers including the requester. */
   teamSize: number;
+  /** Genders of the other travellers, so the party can be assessed as a whole. */
+  teamGenders?: string[];
   carSpecialApproval: boolean;
 }
 
@@ -151,6 +153,21 @@ export interface ModeOption {
  * options that merely need an extra condition come back disabled with a reason,
  * so the employee understands the rule instead of hunting for a missing button.
  */
+const isFemaleGender = (g: string | undefined): boolean =>
+  String(g || "").toLowerCase().startsWith("f");
+
+/**
+ * Whether a woman is travelling — as the claimant, or anywhere in the team.
+ *
+ * Every mode of transport opens for her regardless of band, flight aside, and
+ * that holds for the whole party: a team is only as safe as its least safe
+ * journey, so one female traveller opens the options for the trip.
+ */
+export function femaleTravelling(gender: string, travelType: string, teamGenders: string[] = []): boolean {
+  if (isFemaleGender(gender)) return true;
+  return travelType === "team" && teamGenders.some(isFemaleGender);
+}
+
 export function eligibleModes(policy: Policy, ctx: EligibilityContext): ModeOption[] {
   const band = bandPolicy(policy, ctx.band);
   const spec = (mode: string) => policy.modes.find((m) => m.mode === mode);
@@ -163,15 +180,19 @@ export function eligibleModes(policy: Policy, ctx: EligibilityContext): ModeOpti
   };
 
   if (ctx.scope === "inside") {
-    const isFemale = String(ctx.gender).toLowerCase().startsWith("f");
-    const allowed = (isFemale ? band?.modesFemale : band?.modesMale) ?? [];
+    const female = femaleTravelling(ctx.gender, ctx.travelType, ctx.teamGenders);
+    const allowed = (isFemaleGender(ctx.gender) ? band?.modesFemale : band?.modesMale) ?? [];
     const teamMin = cfgNum(policy, "TEAM_CAR_MIN_MEMBERS", 3);
 
     for (const mode of ["Rickshaw", "Bike", "CNG", "Car"]) {
-      const inBand = allowed.includes(mode);
+      // A woman travelling may take any of these whatever her band says, and
+      // whatever the team is short of.
+      const inBand = female || allowed.includes(mode);
       if (mode === "Car") {
         // Car is the only option with conditions layered on top of the band list.
-        if (ctx.travelType === "team") {
+        if (female) {
+          push("Car", true);
+        } else if (ctx.travelType === "team") {
           if (ctx.teamSize >= teamMin) push("Car", true);
           else push("Car", false, `Car needs at least ${teamMin} travellers — currently ${ctx.teamSize}.`);
         } else if (inBand) {
@@ -207,7 +228,7 @@ export function eligibleModes(policy: Policy, ctx: EligibilityContext): ModeOpti
       continue;
     }
     if (s.mode === "RentACar") {
-      if (band?.carPoolEligible) push("RentACar", true);
+      if (band?.carPoolEligible || femaleTravelling(ctx.gender, ctx.travelType, ctx.teamGenders)) push("RentACar", true);
       else push("RentACar", false, `Rent-a-car pooling is not available for Band ${ctx.band}.`);
       continue;
     }
@@ -346,7 +367,8 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
     const minHead = cfgNum(policy, "RENT_A_CAR_MIN_HEADCOUNT", 3);
     const limit = cfgNum(policy, "RENT_A_CAR_LIMIT", 6000);
     const head = Number(draft.rentACarHeadcount) || 0;
-    if (!band?.carPoolEligible) {
+    const femaleParty = femaleTravelling(user.gender, draft.travelType, draft.teamMembers.map((m) => m.gender));
+    if (!band?.carPoolEligible && !femaleParty) {
       errors.push(`Rent-a-car pooling is not available for Band ${user.band}.`);
       rentACarAmount = 0;
     } else if (head < minHead) {
@@ -493,6 +515,7 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
       scope: draft.scope,
       travelType: draft.travelType,
       teamSize,
+      teamGenders: draft.teamMembers.map((m) => m.gender),
       carSpecialApproval: draft.carSpecialApproval,
     });
     const chosen = opts.find((o) => o.mode === draft.transportMode);

@@ -43,9 +43,10 @@ export default function NewRequest({
       scope: draft.scope,
       travelType: draft.travelType,
       teamSize,
+      teamGenders: draft.teamMembers.map((m) => m.gender),
       carSpecialApproval: draft.carSpecialApproval,
     }),
-    [policy, user, draft.scope, draft.travelType, teamSize, draft.carSpecialApproval],
+    [policy, user, draft.scope, draft.travelType, teamSize, draft.teamMembers, draft.carSpecialApproval],
   );
 
   // Switching city scope invalidates a mode that only exists on the other side.
@@ -484,6 +485,7 @@ function TeamPicker({
           department: e.department,
           designation: e.designation,
           band: e.band,
+          gender: e.gender,
         })));
       } catch (err) {
         if (!cancelled) setError((err as Error).message);

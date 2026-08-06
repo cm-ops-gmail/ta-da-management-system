@@ -400,6 +400,7 @@ app.post("/api/requests/preview", requireAuth, handler(async (req, res) => {
       scope: draft.scope,
       travelType: draft.travelType,
       teamSize: draft.travelType === "team" ? draft.teamMembers.length + 1 : 1,
+      teamGenders: draft.teamMembers.map((m) => m.gender),
       carSpecialApproval: draft.carSpecialApproval,
     }),
   });

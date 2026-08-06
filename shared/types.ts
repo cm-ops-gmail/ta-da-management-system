@@ -87,6 +87,8 @@ export interface TeamMember {
   department: string;
   designation: string;
   band: string;
+  /** Drives transport eligibility for the whole party. */
+  gender: string;
 }
 
 export interface Leg {

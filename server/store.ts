@@ -223,15 +223,15 @@ export async function deptHeadIdFor(employeeId: string): Promise<string> {
 
 function packTeam(members: TeamMember[]): string {
   return members
-    .map((m) => [m.employeeId, m.name, m.department, m.designation, m.band].join(" | "))
+    .map((m) => [m.employeeId, m.name, m.department, m.designation, m.band, m.gender].join(" | "))
     .join("\n");
 }
 
 function unpackTeam(cell: string | undefined): TeamMember[] {
   return lines(cell).map((line) => {
-    const [employeeId = "", name = "", department = "", designation = "", band = ""] =
+    const [employeeId = "", name = "", department = "", designation = "", band = "", gender = ""] =
       line.split("|").map((s) => s.trim());
-    return { employeeId, name, department, designation, band };
+    return { employeeId, name, department, designation, band, gender };
   });
 }
 
