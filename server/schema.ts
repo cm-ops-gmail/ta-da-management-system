@@ -97,6 +97,7 @@ export const TABS: TabSpec[] = [
       // middle shifts every value after it into the wrong column.
       "bkash_number",
       "destination_type",
+      "route",
     ],
   },
 
@@ -211,6 +212,14 @@ export const TABS: TabSpec[] = [
       ["DestinationType", "Vendor", "Vendor", "Name", "", "Yes"],
       ["DestinationType", "Other Office", "Other Office", "Office", "Dhaka", "Yes"],
       ["DestinationType", "Others", "Others", "Purpose", "", "Yes"],
+
+      // Outside-city trips pick a route rather than a bare district. `Extra1`
+      // is where it starts, `Extra2` where it ends — blank meaning the traveller
+      // types the city, which is what the "Other city" routes are for.
+      ["Route", "Dhaka to Chattogram", "Dhaka to Chattogram", "Dhaka", "Chattogram", "Yes"],
+      ["Route", "Chattogram to Dhaka", "Chattogram to Dhaka", "Chattogram", "Dhaka", "Yes"],
+      ["Route", "Dhaka to Other city", "Dhaka to Other city", "Dhaka", "", "Yes"],
+      ["Route", "Chattogram to Other city", "Chattogram to Other city", "Chattogram", "", "Yes"],
 
       ["OtherOffice", "Mirpur LC", "Mirpur LC", "", "", "Yes"],
       ["OtherOffice", "Uttara LC", "Uttara LC", "", "", "Yes"],

@@ -282,6 +282,12 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
   const officeMeal = draft.dualWorkstation ? true : draft.officeMealTaken;
 
   if (draft.scope === "outside") {
+    const taken = policy.routes.find((r) => r.value === draft.route);
+    if (taken) {
+      notes.push(
+        `Outside-city travel ${taken.from} to ${draft.city || taken.to} — per-diem, accommodation and intercity fare rules apply instead of the inside-city ones.`,
+      );
+    }
     perDiemEligible = tripDays > 0;
     perDiemDays = tripDays;
     perDiemAmount = money(span.weekday * (band?.outsideTAWeekday ?? 0) + span.weekend * (band?.outsideTAWeekend ?? 0));
@@ -423,7 +429,13 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
   } else {
     if (!draft.toDate) errors.push("Return date is required for outside-city travel.");
     if (tripDays <= 0) errors.push("The return date cannot be before the travel date.");
-    if (cityZone(policy, draft.city) !== "Outside") errors.push("Select an outside-city destination district.");
+    // Outside-city travel is described by a route, not by a district: Dhaka to
+    // Chattogram is outside-city even though Chattogram is an inside-city
+    // location in its own right, so the city's zone cannot decide this.
+    const taken = policy.routes.find((r) => r.value === draft.route);
+    if (!taken) errors.push("Select a route.");
+    else if (!draft.city) errors.push(`Which city did you travel to from ${taken.from}?`);
+    else if (taken.to && draft.city !== taken.to) errors.push(`${taken.label} must end in ${taken.to}.`);
     if (draft.arrangement === "company") {
       const notice = cfgNum(policy, "COMPANY_ARRANGE_NOTICE_DAYS", 2);
       const available = businessDaysUntil(draft.fromDate);
@@ -523,6 +535,7 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     toDate: today,
     purpose: "",
     destinationType: "",
+    route: "",
     destination: "",
     startTime: "",
     endTime: "",

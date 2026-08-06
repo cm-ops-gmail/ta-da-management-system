@@ -150,7 +150,11 @@ export default function RequestDetail({
           <Card title="Travel">
             <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
               <Row label="Type" value={r.scope === "inside" ? "Inside city" : "Outside city"} />
-              <Row label="City" value={r.city} />
+              {/* Outside-city travel is a route; inside-city is just a city. */}
+              <Row
+                label={r.scope === "inside" ? "City" : "Route"}
+                value={r.scope === "inside" ? r.city : [r.route, r.city].filter(Boolean).join(" — ") || r.city}
+              />
               {/* Inside-city trips carry a kind as well as a name; show both
                   when both are there, and never an empty dash for the kind. */}
               <Row
@@ -728,6 +732,7 @@ function toDraft(r: Detail["request"]): RequestDraft {
     toDate: r.toDate,
     purpose: r.purpose,
     destinationType: r.destinationType,
+    route: r.route,
     destination: r.destination,
     startTime: r.startTime,
     endTime: r.endTime,

@@ -110,6 +110,8 @@ export interface RequestDraft {
   purpose: string;
   /** Kind of place visited on an inside-city trip — a DestinationType value. */
   destinationType: string;
+  /** Outside-city route taken — a Route value. Empty on inside-city trips. */
+  route: string;
   destination: string;
   startTime: string;
   endTime: string;
@@ -175,6 +177,8 @@ export interface Policy {
    */
   destinationTypes: { value: string; label: string; needs: "name" | "office" | "purpose"; cities: string[] }[];
   otherOffices: string[];
+  /** Outside-city routes. A blank `to` means the traveller types the city. */
+  routes: { value: string; label: string; from: string; to: string }[];
   dualWorkstationOptions: string[];
   paymentMethods: string[];
   documentTypes: string[];
@@ -230,6 +234,7 @@ export interface RequestRecord {
   tripDays: number;
   purpose: string;
   destinationType: string;
+  route: string;
   destination: string;
   startTime: string;
   endTime: string;

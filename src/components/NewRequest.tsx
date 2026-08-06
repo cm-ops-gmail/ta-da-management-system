@@ -56,7 +56,6 @@ export default function NewRequest({
   }, [modes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const insideCities = policy.cities.filter((c) => c.zone === "Inside");
-  const outsideCities = policy.cities.filter((c) => c.zone === "Outside");
 
   async function save(submit: boolean) {
     setBusy(true);
@@ -99,7 +98,6 @@ export default function NewRequest({
               draft={draft}
               set={set}
               insideCities={insideCities.map((c) => c.city)}
-              outsideCities={outsideCities.map((c) => c.city)}
               user={user}
               policy={policy}
             />
@@ -187,12 +185,11 @@ function Stepper({ step, onStep }: { step: number; onStep: (n: number) => void }
 // ── Step 1 ──────────────────────────────────────────────────────────────────
 
 function StepTravelType({
-  draft, set, insideCities, outsideCities, user, policy,
+  draft, set, insideCities, user, policy,
 }: {
   draft: RequestDraft;
   set: (p: Partial<RequestDraft>) => void;
   insideCities: string[];
-  outsideCities: string[];
   user: SessionUser;
   policy: Policy;
 }) {
@@ -200,6 +197,7 @@ function StepTravelType({
   const destinationOptions = policy.destinationTypes.filter(
     (d) => !d.cities.length || d.cities.includes(draft.city),
   );
+  const route = policy.routes.find((r) => r.value === draft.route);
   const destination = destinationOptions.find((d) => d.value === draft.destinationType);
   const destinationNeeds = destination?.needs;
   const destinationLabel = destination?.label || "";
@@ -213,6 +211,12 @@ function StepTravelType({
             set({
               scope,
               city: scope === "inside" ? insideCities[0] || "" : "",
+              // Route belongs to outside-city, destination to inside-city;
+              // neither should survive a switch to the other.
+              route: "",
+              destinationType: "",
+              destination: "",
+              purpose: "",
               transportMode: "",
               claimType: scope === "outside" ? "both" : draft.claimType,
             })
@@ -224,6 +228,38 @@ function StepTravelType({
         />
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {draft.scope === "outside" ? (
+            <>
+              <Field label="Route" required>
+                <select
+                  className="field"
+                  value={draft.route}
+                  // The city is the route's end, so it is set here — except on
+                  // an "Other city" route, where it is what gets typed next.
+                  onChange={(e) => {
+                    const picked = policy.routes.find((r) => r.value === e.target.value);
+                    set({ route: e.target.value, city: picked?.to || "" });
+                  }}
+                >
+                  <option value="">Select a route</option>
+                  {policy.routes.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              {route && !route.to && (
+                <Field label={`${route.from} to`} required>
+                  <input
+                    className="field"
+                    value={draft.city}
+                    onChange={(e) => set({ city: e.target.value })}
+                    placeholder="Which city?"
+                  />
+                </Field>
+              )}
+            </>
+          ) : (
           <Field label="City" required>
             <select
               className="field"
@@ -239,11 +275,12 @@ function StepTravelType({
               }}
             >
               <option value="">Select a city</option>
-              {(draft.scope === "inside" ? insideCities : outsideCities).map((c) => (
+              {insideCities.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </Field>
+          )}
 
           {draft.scope === "outside" && (
             <Field label="Travel arrangement" required>
