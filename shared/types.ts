@@ -117,6 +117,8 @@ export interface RequestDraft {
   /** Transport taken outside band policy, with the reason it had to be. */
   exceptionClaimed: boolean;
   exceptionReason: string;
+  /** Whether an eligible traveller actually wants the advance. */
+  advanceWanted: boolean;
   destination: string;
   startTime: string;
   endTime: string;
@@ -244,6 +246,7 @@ export interface RequestRecord {
   route: string;
   exceptionClaimed: boolean;
   exceptionReason: string;
+  advanceWanted: boolean;
   destination: string;
   startTime: string;
   endTime: string;

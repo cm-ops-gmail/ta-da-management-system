@@ -982,43 +982,51 @@ function StepAllowances({
         </div>
       </Card>
 
-      <Card title="Car pool & flight">
+      {/* Only the costs this trip can actually have: a bus journey has no
+          car-pool split and no air fare to declare. */}
+      <Card title="Other costs">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label={`Rent-a-car amount (${currency})`}
-            hint={`Needs at least ${cfgNum(policy, "RENT_A_CAR_MIN_HEADCOUNT", 3)} employees; limit ${currency} ${cfgNum(policy, "RENT_A_CAR_LIMIT", 6000)} one way.`}
-          >
-            <input
-              type="number"
-              min={0}
-              className="field"
-              value={draft.rentACarAmount || ""}
-              onChange={(e) => set({ rentACarAmount: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label="Employees sharing the car">
-            <input
-              type="number"
-              min={0}
-              className="field"
-              value={draft.rentACarHeadcount || ""}
-              onChange={(e) => set({ rentACarHeadcount: Number(e.target.value) })}
-            />
-          </Field>
-          <Field
-            label={`Flight amount (${currency})`}
-            hint={band?.flightEligible ? "Your band is flight-eligible." : `Band ${user.band} is not flight-eligible.`}
-          >
-            <input
-              type="number"
-              min={0}
-              disabled={!band?.flightEligible}
-              className="field"
-              value={draft.flightAmount || ""}
-              onChange={(e) => set({ flightAmount: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label={`Other amount (${currency})`}>
+          {draft.transportMode === "RentACar" && (
+            <>
+              <Field
+                label={`Rent-a-car amount (${currency})`}
+                hint={`Needs at least ${cfgNum(policy, "RENT_A_CAR_MIN_HEADCOUNT", 3)} employees; limit ${currency} ${cfgNum(policy, "RENT_A_CAR_LIMIT", 6000)} one way.`}
+              >
+                <input
+                  type="number"
+                  min={0}
+                  className="field"
+                  value={draft.rentACarAmount || ""}
+                  onChange={(e) => set({ rentACarAmount: Number(e.target.value) })}
+                />
+              </Field>
+              <Field label="Employees sharing the car">
+                <input
+                  type="number"
+                  min={0}
+                  className="field"
+                  value={draft.rentACarHeadcount || ""}
+                  onChange={(e) => set({ rentACarHeadcount: Number(e.target.value) })}
+                />
+              </Field>
+            </>
+          )}
+          {draft.transportMode === "Flight" && (
+            <Field
+              label={`Flight amount (${currency})`}
+              hint={band?.flightEligible ? "Your band is flight-eligible." : `Band ${user.band} is not flight-eligible.`}
+            >
+              <input
+                type="number"
+                min={0}
+                disabled={!band?.flightEligible}
+                className="field"
+                value={draft.flightAmount || ""}
+                onChange={(e) => set({ flightAmount: Number(e.target.value) })}
+              />
+            </Field>
+          )}
+          <Field label={`Other amount (${currency})`} hint="Anything the categories above do not cover.">
             <input
               type="number"
               min={0}
@@ -1034,20 +1042,52 @@ function StepAllowances({
         title="Travel advance"
         subtitle={
           computation.advanceAvailable
-            ? "Available because this trip is longer than the policy threshold."
-            : `An advance is only offered for outside-city trips longer than ${advanceMinDays} days.`
+            ? `This trip is ${computation.tripDays} days, so you are eligible for a travel advance.`
+            : `An advance is only offered for outside-city trips of ${advanceMinDays} days or more.`
         }
       >
-        <Field label={`Advance needed (${currency})`}>
-          <input
-            type="number"
-            min={0}
-            disabled={!computation.advanceAvailable}
-            className="field"
-            value={draft.advanceRequested || ""}
-            onChange={(e) => set({ advanceRequested: Number(e.target.value) })}
-          />
-        </Field>
+        {computation.advanceAvailable ? (
+          <>
+            <ChoiceGrid
+              value={draft.advanceWanted ? "yes" : "no"}
+              // Declining clears any figure already typed, so nothing is
+              // requested by accident.
+              onChange={(v) =>
+                set({ advanceWanted: v === "yes", advanceRequested: v === "yes" ? draft.advanceRequested : 0 })
+              }
+              options={[
+                { value: "yes", label: "Yes, I want an advance", description: "Paid before you travel, settled against this claim afterwards." },
+                { value: "no", label: "No, thanks", description: "Pay your own way and claim it all back after the trip." },
+              ]}
+            />
+            {draft.advanceWanted ? (
+              <div className="mt-5">
+                <Field label={`Advance needed (${currency})`}>
+                  <input
+                    type="number"
+                    min={0}
+                    className="field"
+                    value={draft.advanceRequested || ""}
+                    onChange={(e) => set({ advanceRequested: Number(e.target.value) })}
+                  />
+                </Field>
+              </div>
+            ) : (
+              <div className="mt-5">
+                <Notice
+                  tone="info"
+                  items={[
+                    `You are eligible but have declined. Nothing is paid up front — spend your own money on the trip and the full ${currency} amount comes back to you once this claim is approved.`,
+                  ]}
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">
+            Advances start at {advanceMinDays}-day trips. This one is {computation.tripDays} day(s).
+          </p>
+        )}
         {computation.requiresDeptHeadApproval && (
           <div className="mt-3">
             <Notice
@@ -1058,6 +1098,7 @@ function StepAllowances({
             />
           </div>
         )}
+
       </Card>
     </>
   );

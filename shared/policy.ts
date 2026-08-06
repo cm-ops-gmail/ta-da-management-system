@@ -402,11 +402,20 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
 
   // ── Advance ───────────────────────────────────────────────────────────────
   const advanceMinDays = cfgNum(policy, "ADVANCE_MIN_TRIP_DAYS", 3);
-  const advanceAvailable = draft.scope === "outside" && tripDays > advanceMinDays;
+  // Three days qualifies — the threshold is the shortest trip that earns one,
+  // not the one it has to beat.
+  const advanceAvailable = draft.scope === "outside" && tripDays >= advanceMinDays;
   let advanceRequested = money(Number(draft.advanceRequested) || 0);
   if (advanceRequested > 0 && !advanceAvailable) {
-    errors.push(`An advance is only available for outside-city trips longer than ${advanceMinDays} days.`);
+    errors.push(`An advance is only available for outside-city trips of ${advanceMinDays} days or more.`);
     advanceRequested = 0;
+  }
+  // Declining is a real answer, and worth confirming what it means.
+  if (advanceAvailable && !draft.advanceWanted) {
+    advanceRequested = 0;
+    notes.push(
+      `This ${tripDays}-day trip qualifies for a travel advance and you have chosen not to take one — the whole claim is reimbursed after the trip instead.`,
+    );
   }
   const deptHeadLimit = cfgNum(policy, "ADVANCE_AUTO_LIMIT", 10000);
   const requiresDeptHeadApproval = advanceRequested > deptHeadLimit;
@@ -622,6 +631,7 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     route: "",
     exceptionClaimed: false,
     exceptionReason: "",
+    advanceWanted: false,
     destination: "",
     startTime: "",
     endTime: "",
