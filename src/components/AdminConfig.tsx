@@ -268,7 +268,7 @@ function ClaimUnlock() {
             />
           )}
           {!picked && found.length > 0 && (
-            <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+            <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-md">
               {found.map((e) => (
                 <li key={e.employeeId}>
                   <button

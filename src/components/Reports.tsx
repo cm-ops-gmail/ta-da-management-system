@@ -196,7 +196,7 @@ export default function Reports({
                 </div>
                 <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
                   <div
-                    className="h-full rounded-full bg-brand-500"
+                    className="h-full rounded-full bg-chart-1"
                     style={{ width: `${biggest ? Math.max(2, (t.claimed / biggest) * 100) : 0}%` }}
                   />
                 </div>

@@ -220,7 +220,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center bg-[#0f1a2e] px-4 py-10">
+    <div className="flex min-h-full flex-col items-center justify-center bg-[oklch(14.5%_0_0)] px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-10 flex flex-col items-center">
           {/* The mark already carries its own dark tile, so it sits straight on

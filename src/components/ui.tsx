@@ -300,7 +300,7 @@ export function MultiSelect({
       </button>
 
       {open && (
-        <ul className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+        <ul className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-md">
           {options.map((opt) => (
             <li key={opt}>
               <label className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm hover:bg-slate-50">
