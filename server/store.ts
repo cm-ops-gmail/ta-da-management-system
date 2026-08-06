@@ -87,6 +87,7 @@ export async function loadPolicy(): Promise<Policy> {
       label: r.label || r.value,
       needs: (r.extra_1 === "Office" ? "office" : r.extra_1 === "Purpose" ? "purpose" : "name") as
         "name" | "office" | "purpose",
+      cities: csv(r.extra_2),
     })),
     otherOffices: of("OtherOffice").map((r) => r.value),
     dualWorkstationOptions: of("DualWorkstation").map((r) => r.value),

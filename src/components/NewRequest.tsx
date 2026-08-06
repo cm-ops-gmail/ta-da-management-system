@@ -196,7 +196,11 @@ function StepTravelType({
   user: SessionUser;
   policy: Policy;
 }) {
-  const destination = policy.destinationTypes.find((d) => d.value === draft.destinationType);
+  // Some destinations only exist in some cities — Other Office is Dhaka-only.
+  const destinationOptions = policy.destinationTypes.filter(
+    (d) => !d.cities.length || d.cities.includes(draft.city),
+  );
+  const destination = destinationOptions.find((d) => d.value === draft.destinationType);
   const destinationNeeds = destination?.needs;
   const destinationLabel = destination?.label || "";
 
@@ -221,7 +225,19 @@ function StepTravelType({
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <Field label="City" required>
-            <select className="field" value={draft.city} onChange={(e) => set({ city: e.target.value })}>
+            <select
+              className="field"
+              value={draft.city}
+              onChange={(e) => {
+                const city = e.target.value;
+                // Moving to a city where the chosen destination does not exist
+                // would otherwise leave it selected but off the list.
+                const stillOffered = policy.destinationTypes.some(
+                  (d) => d.value === draft.destinationType && (!d.cities.length || d.cities.includes(city)),
+                );
+                set(stillOffered ? { city } : { city, destinationType: "", destination: "", purpose: "" });
+              }}
+            >
               <option value="">Select a city</option>
               {(draft.scope === "inside" ? insideCities : outsideCities).map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -255,7 +271,7 @@ function StepTravelType({
                   onChange={(e) => set({ destinationType: e.target.value, destination: "", purpose: "" })}
                 >
                   <option value="">Select a destination</option>
-                  {policy.destinationTypes.map((d) => (
+                  {destinationOptions.map((d) => (
                     <option key={d.value} value={d.value}>{d.label}</option>
                   ))}
                 </select>

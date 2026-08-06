@@ -169,8 +169,11 @@ export interface Policy {
   cities: { city: string; zone: "Inside" | "Outside" }[];
   modes: TransportModeSpec[];
   workedAtOptions: string[];
-  /** Inside-city destinations. `needs` decides what the form asks for next. */
-  destinationTypes: { value: string; label: string; needs: "name" | "office" | "purpose" }[];
+  /**
+   * Inside-city destinations. `needs` decides what the form asks for next;
+   * `cities` limits the option to those cities, empty meaning everywhere.
+   */
+  destinationTypes: { value: string; label: string; needs: "name" | "office" | "purpose"; cities: string[] }[];
   otherOffices: string[];
   dualWorkstationOptions: string[];
   paymentMethods: string[];

@@ -399,7 +399,9 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
   if (draft.scope === "inside") {
     // Inside-city trips pick the destination from a list; what that choice
     // asks for next decides what still has to be filled in.
-    const chosen = policy.destinationTypes.find((d) => d.value === draft.destinationType);
+    const chosen = policy.destinationTypes.find(
+      (d) => d.value === draft.destinationType && (!d.cities.length || d.cities.includes(draft.city)),
+    );
     if (!chosen) errors.push("Select a destination.");
     else if (chosen.needs === "name" && !draft.destination) {
       errors.push(`${chosen.label} name is required.`);
