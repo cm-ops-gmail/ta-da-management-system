@@ -5,18 +5,18 @@
  * "Sign out" here would leave the surrounding page signed in and this panel
  * signed out.
  *
- * The signal is `?source=hq`. Being framed is not enough by itself: HQ serves
- * the app at both /ta-da and /ta-da?source=hq, both inside a frame, and only
- * the second should hide the button — so the frame cannot be what decides.
+ * Two signals, either of which is enough.
  *
- * A cross-origin frame cannot read its parent's location, so the marker has to
- * be handed in. Either works, and both are one change on the embedding side:
+ * `?source=hq` is the explicit one, but it cannot be relied on by itself: HQ's
+ * outer page carrying that query param does not mean its <iframe> tag's src
+ * carries it too, and a cross-origin frame cannot read its parent's location.
+ * Today HQ's src passes only `tenms_token`, so the marker never arrives.
  *
- *     <iframe src="https://…/?source=hq">           marker on the frame's URL
- *     <iframe referrerpolicy="unsafe-url" src="…">  full parent URL as referrer
- *
- * The second is what the referrer check below is for. Without it browsers trim
- * the referrer to a bare origin and the parent's query string never arrives.
+ * Being inside a frame at all is therefore the signal that actually fires. It
+ * is self-contained and needs nothing from HQ's embed code — safe here because
+ * this internal tool is only ever framed by HQ. Comparing the two window
+ * references is allowed across origins; it is reading a *property* off
+ * window.top that would throw.
  */
 
 const KEY = "ta-perdiem-source";
@@ -87,8 +87,7 @@ export const IS_FRAMED = detectFramed();
  * True when something other than this app owns the sign-in session, so the app
  * must not offer to end it.
  *
- * The marker is the only signal. Being framed is deliberately NOT enough:
- * /ta-da and /ta-da?source=hq are both framed, and they have to behave
- * differently, so the frame itself cannot be what decides.
+ * Note that every framed page is covered, `?source=hq` or not, since being
+ * framed is on its own enough.
  */
-export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq";
+export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq" || IS_FRAMED;
