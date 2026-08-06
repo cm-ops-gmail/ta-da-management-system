@@ -25,6 +25,10 @@ export default function RequestDetail({
   const [action, setAction] = useState<"approve" | "reject" | "return" | "request_docs" | null>(null);
   const [paying, setPaying] = useState(false);
   const [advanceAction, setAdvanceAction] = useState<"approve" | "settle" | "reject" | null>(null);
+  const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState("");
+  const [disputing, setDisputing] = useState(false);
+  const [disputeNote, setDisputeNote] = useState("");
   const currency = cfgStr(policy, "CURRENCY", "BDT");
 
   async function load() {
@@ -46,6 +50,7 @@ export default function RequestDetail({
 
   const r = detail.request;
   const a = detail.approval;
+  const isMine = r.employeeId === user.employeeId;
   const lines: [string, number][] = [
     ["Transportation (TA)", r.taAmount],
     [`Per-Diem${r.perDiemDays > 1 ? ` · ${r.perDiemDays} days` : ""}`, r.perDiemAmount],
@@ -91,7 +96,7 @@ export default function RequestDetail({
               <Pencil size={16} /> Edit & resubmit
             </button>
           )}
-          {detail.canAct && r.status === "payment_processing" && (
+          {detail.canAct && ["payment_processing", "payment_disputed"].includes(r.status) && (
             <button className="btn-success flex-1 sm:flex-none" onClick={() => setPaying(true)}>
               <Banknote size={16} /> Mark paid
             </button>
@@ -143,7 +148,101 @@ export default function RequestDetail({
         {r.status === "returned" && (
           <div className="mt-4"><Notice tone="warn" items={[`Returned for correction — ${lastRemark(a) || "see remarks"}`]} /></div>
         )}
+        {r.status === "payment_disputed" && (
+          <div className="mt-4">
+            <Notice
+              tone="error"
+              items={[`${r.employeeName} says this payment never arrived${r.paymentAckNote ? ` — ${r.paymentAckNote}` : ""}. Finance is looking into it.`]}
+            />
+          </div>
+        )}
+
+        {/* Only the person who claimed it can say whether the money turned up,
+            and until they do they cannot raise another claim. */}
+        {isMine && r.status === "paid" && !r.paymentAck && (
+          <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 sm:p-5">
+            <p className="text-sm font-bold text-indigo-900">Did you get the money?</p>
+            <p className="mt-1 text-sm leading-relaxed text-indigo-800">
+              Finance paid <Money value={r.paidAmount || r.finalPayable} currency={currency} /> on{" "}
+              {r.paymentDate || "—"}{r.transactionId ? ` (ref ${r.transactionId})` : ""}. Tell us whether it
+              reached you — you cannot raise a new claim until this one is answered.
+            </p>
+            {ackError && <p className="mt-2 text-sm font-medium text-rose-700">{ackError}</p>}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                className="btn-success"
+                disabled={acking}
+                onClick={async () => {
+                  setAcking(true);
+                  setAckError("");
+                  try {
+                    await api.acknowledge(r.requestId, true);
+                    await load();
+                    onChanged();
+                  } catch (err) {
+                    setAckError((err as Error).message);
+                  } finally {
+                    setAcking(false);
+                  }
+                }}
+              >
+                <Check size={16} /> Yes, I received it
+              </button>
+              <button className="btn-ghost" disabled={acking} onClick={() => setDisputing(true)}>
+                <X size={16} /> No, it never arrived
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isMine && r.paymentAck === "received" && (
+          <div className="mt-4">
+            <Notice tone="info" items={["You confirmed this payment was received."]} />
+          </div>
+        )}
       </Card>
+
+      {disputing && (
+        <Modal title="The payment never arrived" onClose={() => setDisputing(false)}>
+          <p className="text-sm leading-relaxed text-slate-600">
+            Finance will re-check the transfer. Tell them what you can see — the account it should have gone
+            to, and whether anything came through at all.
+          </p>
+          <Field label="What happened?" required>
+            <textarea
+              className="field min-h-24"
+              value={disputeNote}
+              onChange={(e) => setDisputeNote(e.target.value)}
+              placeholder="Nothing reached 01712345678 on 12 September. My bKash statement shows no credit that day."
+            />
+          </Field>
+          {ackError && <Notice tone="error" items={[ackError]} />}
+          <div className="flex justify-end gap-2">
+            <button className="btn-ghost" onClick={() => setDisputing(false)}>Cancel</button>
+            <button
+              className="btn-primary"
+              disabled={acking || !disputeNote.trim()}
+              onClick={async () => {
+                setAcking(true);
+                setAckError("");
+                try {
+                  await api.acknowledge(r.requestId, false, disputeNote.trim());
+                  setDisputing(false);
+                  setDisputeNote("");
+                  await load();
+                  onChanged();
+                } catch (err) {
+                  setAckError((err as Error).message);
+                } finally {
+                  setAcking(false);
+                }
+              }}
+            >
+              Send back to Finance
+            </button>
+          </div>
+        </Modal>
+      )}
 
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-5">
@@ -408,13 +507,15 @@ export default function RequestDetail({
             <Card
               title="Your decision"
               subtitle={
-                r.status === "payment_processing"
+                r.status === "payment_disputed"
+                  ? "The employee says this payment never arrived. Look into it, then record the payment again with a remark."
+                  : r.status === "payment_processing"
                   ? "Already approved — record the payment, or send it back if something is wrong."
                   : `This request is at your desk as ${r.status.replace(/_/g, " ")}.`
               }
             >
               <div className="grid gap-2">
-                {r.status === "payment_processing" ? (
+                {["payment_processing", "payment_disputed"].includes(r.status) ? (
                   <button className="btn-success" onClick={() => setPaying(true)}>
                     <Banknote size={16} /> Mark paid
                   </button>
@@ -450,6 +551,7 @@ export default function RequestDetail({
       {paying && (
         <PaymentModal
           requestId={r.requestId}
+          needsRemark={r.status === "payment_disputed"}
           amount={r.finalPayable}
           bkashNumber={r.bkashNumber}
           methods={policy.paymentMethods}
@@ -576,10 +678,12 @@ function ActionModal({
 }
 
 function PaymentModal({
-  requestId, amount, bkashNumber, methods, currency, onClose, onDone,
+  requestId, amount, bkashNumber, methods, currency, onClose, onDone, needsRemark = false,
 }: {
   requestId: string;
   amount: number;
+  /** Re-paying after a dispute: the employee is owed an explanation. */
+  needsRemark?: boolean;
   bkashNumber: string;
   methods: string[];
   currency: string;
@@ -633,13 +737,17 @@ function PaymentModal({
             <input type="date" className="field" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
           </Field>
         </div>
-        <Field label="Note">
+        <Field
+          label={needsRemark ? "What happened to the first payment?" : "Note"}
+          required={needsRemark}
+          hint={needsRemark ? "The employee sees this — they said the money never arrived." : undefined}
+        >
           <input className="field" value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
         {error && <Notice tone="error" items={[error]} />}
         <div className="flex justify-end gap-2">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-success" onClick={go} disabled={busy}>
+          <button className="btn-success" onClick={go} disabled={busy || (needsRemark && !note.trim())}>
             <Banknote size={16} /> Mark paid
           </button>
         </div>

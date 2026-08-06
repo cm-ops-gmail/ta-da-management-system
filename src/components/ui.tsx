@@ -98,6 +98,7 @@ const STATUS_STYLE: Record<Status, string> = {
   admin_review: "bg-amber-50 text-amber-700 ring-amber-200",
   finance_review: "bg-sky-50 text-sky-700 ring-sky-200",
   payment_processing: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+  payment_disputed: "bg-rose-50 text-rose-700 ring-rose-200",
   paid: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   returned: "bg-orange-50 text-orange-700 ring-orange-200",

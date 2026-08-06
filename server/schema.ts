@@ -101,6 +101,7 @@ export const TABS: TabSpec[] = [
       "exception_claimed", "exception_reason", "advance_wanted",
       "payout_method", "bank_name", "bank_account_name", "bank_account_number",
       "bank_routing_number", "bank_branch",
+      "payment_ack", "payment_ack_at", "payment_ack_note",
     ],
   },
 

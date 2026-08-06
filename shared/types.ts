@@ -13,6 +13,7 @@ export type Status =
   | "payment_processing"
   | "paid"
   | "completed"
+  | "payment_disputed"
   | "returned"
   | "rejected";
 
@@ -22,7 +23,8 @@ export const STATUS_LABEL: Record<Status, string> = {
   admin_review: "Under Admin Review",
   finance_review: "Under Finance Review",
   payment_processing: "Payment Processing",
-  paid: "Paid",
+  paid: "Paid — confirm receipt",
+  payment_disputed: "Payment Not Received",
   completed: "Completed",
   returned: "Returned for Correction",
   rejected: "Rejected",
@@ -36,10 +38,10 @@ export const STATUS_LABEL: Record<Status, string> = {
  */
 export const STATUS_GROUPS = {
   pending: { label: "Pending", statuses: ["manager_review", "admin_review", "finance_review"] },
-  approved: { label: "Approved", statuses: ["payment_processing", "paid", "completed"] },
+  approved: { label: "Approved", statuses: ["payment_processing", "paid", "payment_disputed", "completed"] },
   rejected: { label: "Rejected", statuses: ["rejected"] },
   returned: { label: "Returned", statuses: ["returned"] },
-  paymentPending: { label: "Payment Pending", statuses: ["payment_processing"] },
+  paymentPending: { label: "Payment Pending", statuses: ["payment_processing", "payment_disputed"] },
   paid: { label: "Paid", statuses: ["paid", "completed"] },
 } as const satisfies Record<string, { label: string; statuses: readonly Status[] }>;
 
@@ -52,6 +54,7 @@ export const STATUS_PROGRESS: Record<Status, number> = {
   finance_review: 60,
   payment_processing: 80,
   paid: 92,
+  payment_disputed: 85,
   completed: 100,
   returned: 10,
   rejected: 100,
@@ -333,6 +336,10 @@ export interface RequestRecord {
   paymentDate: string;
   paidAmount: number;
   paidBy: string;
+  /** "" until the employee answers, then "received" or "not_received". */
+  paymentAck: string;
+  paymentAckAt: string;
+  paymentAckNote: string;
 }
 
 /** One request = one row in the Approvals tab, with a column group per desk. */

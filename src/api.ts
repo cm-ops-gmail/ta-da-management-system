@@ -198,6 +198,8 @@ export const api = {
     post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/action`, { action, remarks }),
   pay: (id: string, payload: Record<string, unknown>) =>
     post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/payment`, payload),
+  acknowledge: (id: string, received: boolean, note = "") =>
+    post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/acknowledge`, { received, note }),
 
   advances: (scope: "mine" | "desk") =>
     call<{ requests: (RequestRecord & { myStep: AdvanceStep | null })[] }>(`/advances?scope=${scope}`),

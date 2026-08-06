@@ -253,6 +253,8 @@ function canActOn(session: Session, req: RequestRecord): boolean {
       return hasRole(session, "admin");
     case "finance_review":
     case "payment_processing":
+    // The employee says the money never arrived — Finance has to answer that.
+    case "payment_disputed":
       return hasRole(session, "finance");
     default:
       return false;
@@ -274,7 +276,7 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
   const scope = String(req.query.scope || "all");
 
   const isMine = (r: RequestRecord) => r.employeeId === me;
-  const settled = (r: RequestRecord) => ["payment_processing", "paid", "completed"].includes(r.status);
+  const settled = (r: RequestRecord) => ["payment_processing", "paid", "payment_disputed", "completed"].includes(r.status);
 
   // Requests this user has personally decided on, read off the Approvals row.
   const actedOn = new Set(
@@ -298,7 +300,7 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
       case "desk_advance": return !isMine(r) && r.advanceRequested > 0;
       // Finance's own screen: what is waiting on their approval as well as
       // what is waiting to be paid.
-      case "desk_payments": return !isMine(r) && (settled(r) || r.status === "finance_review");
+      case "desk_payments": return !isMine(r) && (settled(r) || ["finance_review", "payment_disputed"].includes(r.status));
       default: return true;
     }
   });
@@ -314,7 +316,8 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
     admin_review: "Administration",
     finance_review: "Finance",
     payment_processing: "Finance — payment",
-    paid: "Advance settlement",
+    payment_disputed: "Finance — payment not received",
+    paid: "Employee — confirm receipt",
     returned: "Employee — correction needed",
     draft: "Employee — not submitted",
   };
@@ -578,6 +581,9 @@ function buildRecord(
     paymentDate: base.paymentDate ?? "",
     paidAmount: base.paidAmount ?? 0,
     paidBy: base.paidBy ?? "",
+    paymentAck: base.paymentAck ?? "",
+    paymentAckAt: base.paymentAckAt ?? "",
+    paymentAckNote: base.paymentAckNote ?? "",
   };
 }
 
@@ -622,11 +628,39 @@ async function ensureUniqueRequestId(
 
 // ── Create / update a request ───────────────────────────────────────────────
 
+/**
+ * Claims still waiting for this person to confirm they were paid.
+ *
+ * An unanswered claim is how a wrong account number stays invisible, so a new
+ * one waits until the last is closed off. Drafts are exempt — only submitting
+ * is blocked.
+ */
+async function awaitingAcknowledgement(employeeId: string): Promise<string[]> {
+  const rows = await readTab("Requests");
+  return rows
+    .map(toRequest)
+    .filter((r) => r.employeeId === employeeId && r.status === "paid" && !r.paymentAck)
+    .map((r) => r.requestId);
+}
+
 app.post("/api/requests", requireAuth, handler(async (req, res) => {
   const policy = await loadPolicy();
   const draft = normaliseDraft(req.body?.draft);
   const submit = req.body?.submit !== false;
   const computation = computeRequest(policy, draft, req.session);
+
+  if (submit) {
+    const waiting = await awaitingAcknowledgement(req.session.employeeId);
+    if (waiting.length) {
+      res.status(400).json({
+        error:
+          `Please finish ${waiting.join(", ")} first — open it and tell us whether the payment reached you. ` +
+          "A new claim can be raised once that is answered.",
+        blockedBy: waiting,
+      });
+      return;
+    }
+  }
 
   if (submit && computation.errors.length) {
     res.status(400).json({ error: computation.errors[0], computation });
@@ -680,6 +714,18 @@ app.put("/api/requests/:id", requireAuth, handler(async (req, res) => {
   const policy = await loadPolicy();
   const draft = normaliseDraft({ ...req.body?.draft, requestId: existing.requestId });
   const submit = req.body?.submit !== false;
+  if (submit) {
+    const waiting = (await awaitingAcknowledgement(req.session.employeeId))
+      .filter((id) => id !== existing.requestId);
+    if (waiting.length) {
+      res.status(400).json({
+        error:
+          `Please finish ${waiting.join(", ")} first — open it and tell us whether the payment reached you.`,
+        blockedBy: waiting,
+      });
+      return;
+    }
+  }
   const computation = computeRequest(policy, draft, req.session);
   if (submit && computation.errors.length) {
     res.status(400).json({ error: computation.errors[0], computation });
@@ -831,8 +877,14 @@ app.post("/api/requests/:id/payment", requireAuth, handler(async (req, res) => {
     return;
   }
   const record = toRequest(row);
-  if (record.status !== "payment_processing") {
+  if (!["payment_processing", "payment_disputed"].includes(record.status)) {
     res.status(400).json({ error: "This request is not ready for payment." });
+    return;
+  }
+  const answeringDispute = record.status === "payment_disputed";
+  const note = String(req.body?.note || "").trim();
+  if (answeringDispute && !note) {
+    res.status(400).json({ error: "Add a remark explaining what happened to this payment." });
     return;
   }
 
@@ -853,14 +905,17 @@ app.post("/api/requests/:id/payment", requireAuth, handler(async (req, res) => {
     return;
   }
 
-  // A trip that took an advance stays "paid" until the advance is settled;
-  // everything else closes out immediately.
-  const advanceOutstanding = record.advanceRequested > 0 && !record.settledAt;
-
+  // Recording a payment no longer closes the claim: the employee has to say
+  // the money actually arrived first, which is the only check that the account
+  // details were right.
   const updated: RequestRecord = {
     ...record,
-    status: advanceOutstanding ? "paid" : "completed",
-    completedAt: advanceOutstanding ? "" : nowISO(),
+    status: "paid",
+    completedAt: "",
+    // Paying again after a dispute reopens the question.
+    paymentAck: "",
+    paymentAckAt: "",
+    paymentAckNote: "",
     updatedAt: nowISO(),
     paymentMode,
     transactionId,
@@ -877,11 +932,78 @@ app.post("/api/requests/:id/payment", requireAuth, handler(async (req, res) => {
       group: "Payment",
       status: "Paid",
       by: `${req.session.name} <${req.session.email}>`,
-      remarks: `${paymentMode} · ${transactionId} · ${amount}`,
+      remarks: [`${paymentMode} · ${transactionId} · ${amount}`, note].filter(Boolean).join(" — "),
     }],
-    { currentStage: updated.status, lastAction: `Paid by ${req.session.name}` },
+    {
+      currentStage: updated.status,
+      lastAction: answeringDispute ? `Re-paid by ${req.session.name}` : `Paid by ${req.session.name}`,
+    },
   );
 
+  res.json({ request: updated });
+}));
+
+/**
+ * The employee says whether the money actually arrived.
+ *
+ * This is the only check that the account details were right — a claim marked
+ * paid against a mistyped bKash number looks settled from every other angle.
+ * Saying no sends it back to Finance rather than closing it.
+ */
+app.post("/api/requests/:id/acknowledge", requireAuth, handler(async (req, res) => {
+  const rows = await readTab("Requests");
+  const row = rows.find((r) => r.request_id === req.params.id);
+  if (!row) {
+    res.status(404).json({ error: "Request not found." });
+    return;
+  }
+  const record = toRequest(row);
+  if (record.employeeId !== req.session.employeeId) {
+    res.status(403).json({ error: "Only the person who claimed this can confirm the payment." });
+    return;
+  }
+  if (record.status !== "paid") {
+    res.status(400).json({ error: "This claim is not waiting for you to confirm a payment." });
+    return;
+  }
+
+  const received = req.body?.received === true;
+  const note = String(req.body?.note || "").trim();
+  if (!received && !note) {
+    res.status(400).json({ error: "Tell Finance what happened — they need something to look into." });
+    return;
+  }
+
+  // An outstanding advance keeps the claim open even once the money is
+  // confirmed: it closes when the advance is settled.
+  const advanceOutstanding = record.advanceRequested > 0 && !record.settledAt;
+  const updated: RequestRecord = {
+    ...record,
+    status: received ? (advanceOutstanding ? "paid" : "completed") : "payment_disputed",
+    completedAt: received && !advanceOutstanding ? nowISO() : "",
+    paymentAck: received ? "received" : "not_received",
+    paymentAckAt: nowISO(),
+    paymentAckNote: note,
+    updatedAt: nowISO(),
+  };
+  await updateRow("Requests", row._row, fromRequest(updated));
+
+  await upsertApproval(
+    record.requestId,
+    record.employeeName,
+    [{
+      group: "Payment",
+      status: received ? "Confirmed by employee" : "Not received",
+      by: `${req.session.name} <${req.session.email}>`,
+      remarks: note,
+    }],
+    {
+      currentStage: updated.status,
+      lastAction: received
+        ? `Payment confirmed by ${req.session.name}`
+        : `Payment disputed by ${req.session.name}`,
+    },
+  );
 
   res.json({ request: updated });
 }));
