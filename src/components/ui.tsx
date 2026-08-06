@@ -141,10 +141,23 @@ export function Notice({
       <div className="flex gap-2">
         <Icon size={16} className="mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
-          {title && <p className="mb-1 font-semibold">{title}</p>}
-          <ul className="space-y-1">
+          {title && <p className="mb-1.5 font-semibold">{title}</p>}
+          {/* Several points ran together as one paragraph without a marker:
+              each wrapped onto the next line and nothing showed where one
+              ended. The dot is absolutely positioned so wrapped lines align
+              under the text rather than under the bullet. A lone point needs
+              no marker — there is nothing to separate it from. */}
+          <ul className={items.length > 1 ? "space-y-2" : ""}>
             {items.map((t, i) => (
-              <li key={i} className="leading-relaxed">{t}</li>
+              <li
+                key={i}
+                className={`leading-relaxed ${items.length > 1 ? "relative pl-4" : ""}`}
+              >
+                {items.length > 1 && (
+                  <span className="absolute left-0 top-[0.5em] size-1.5 rounded-full bg-current opacity-50" />
+                )}
+                {t}
+              </li>
             ))}
           </ul>
         </div>
