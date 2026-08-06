@@ -28,6 +28,23 @@ export const STATUS_LABEL: Record<Status, string> = {
   rejected: "Rejected",
 };
 
+/**
+ * The buckets the dashboard counts and the lists filter by.
+ *
+ * One definition for both, so a card's number and the list it opens can never
+ * disagree — clicking "Returned: 3" has to land on exactly three claims.
+ */
+export const STATUS_GROUPS = {
+  pending: { label: "Pending", statuses: ["manager_review", "admin_review", "finance_review"] },
+  approved: { label: "Approved", statuses: ["payment_processing", "paid", "completed"] },
+  rejected: { label: "Rejected", statuses: ["rejected"] },
+  returned: { label: "Returned", statuses: ["returned"] },
+  paymentPending: { label: "Payment Pending", statuses: ["payment_processing"] },
+  paid: { label: "Paid", statuses: ["paid", "completed"] },
+} as const satisfies Record<string, { label: string; statuses: readonly Status[] }>;
+
+export type StatusGroup = keyof typeof STATUS_GROUPS;
+
 export const STATUS_PROGRESS: Record<Status, number> = {
   draft: 0,
   manager_review: 20,

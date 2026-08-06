@@ -3,17 +3,20 @@ import {
   BadgeCheck, Banknote, CircleDollarSign, Clock, RotateCcw, XCircle,
 } from "lucide-react";
 import { api, type Summary } from "../api.js";
+import { STATUS_GROUPS, type StatusGroup } from "../../shared/types.js";
 import type { RequestRecord, SessionUser } from "../../shared/types.js";
 import { Card, Empty, Money, ProgressBar, Spinner, StatusBadge } from "./ui.js";
 
+// Labels come from the shared group definitions, so a card can never be named
+// one thing here and filtered as another.
 const CARDS = [
-  { key: "pending", label: "Pending", icon: Clock, tone: "text-amber-600 bg-amber-50" },
-  { key: "approved", label: "Approved", icon: BadgeCheck, tone: "text-emerald-600 bg-emerald-50" },
-  { key: "rejected", label: "Rejected", icon: XCircle, tone: "text-rose-600 bg-rose-50" },
-  { key: "returned", label: "Returned", icon: RotateCcw, tone: "text-orange-600 bg-orange-50" },
-  { key: "paymentPending", label: "Payment Pending", icon: Banknote, tone: "text-indigo-600 bg-indigo-50" },
-  { key: "paid", label: "Paid", icon: CircleDollarSign, tone: "text-emerald-600 bg-emerald-50" },
-] as const;
+  { key: "pending", icon: Clock, tone: "text-amber-600 bg-amber-50" },
+  { key: "approved", icon: BadgeCheck, tone: "text-emerald-600 bg-emerald-50" },
+  { key: "rejected", icon: XCircle, tone: "text-rose-600 bg-rose-50" },
+  { key: "returned", icon: RotateCcw, tone: "text-orange-600 bg-orange-50" },
+  { key: "paymentPending", icon: Banknote, tone: "text-indigo-600 bg-indigo-50" },
+  { key: "paid", icon: CircleDollarSign, tone: "text-emerald-600 bg-emerald-50" },
+] as const satisfies readonly { key: StatusGroup; icon: typeof Clock; tone: string }[];
 
 /**
  * The employee's own home screen. Everything here is about claims this person
@@ -53,15 +56,26 @@ export default function Dashboard({
       </div>
 
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-6">
-        {CARDS.map(({ key, label, icon: Icon, tone }) => (
-          <div key={key} className="card p-3.5 sm:p-4">
-            <div className={`mb-3 flex size-8 items-center justify-center rounded-lg ${tone}`}>
-              <Icon size={16} />
-            </div>
-            <p className="text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{summary?.[key] ?? 0}</p>
-            <p className="mt-0.5 text-xs font-medium text-slate-500">{label}</p>
-          </div>
-        ))}
+        {CARDS.map(({ key, icon: Icon, tone }) => {
+          const total = summary?.[key] ?? 0;
+          return (
+            <button
+              key={key}
+              type="button"
+              // A count is only useful if you can get to what it counts.
+              onClick={() => onGoto(`my-requests:${key}`)}
+              disabled={!total}
+              className="card p-3.5 text-left transition enabled:hover:border-brand-300 enabled:hover:shadow-sm disabled:cursor-default sm:p-4"
+              aria-label={`${total} ${STATUS_GROUPS[key].label.toLowerCase()} claim(s)`}
+            >
+              <div className={`mb-3 flex size-8 items-center justify-center rounded-lg ${tone}`}>
+                <Icon size={16} />
+              </div>
+              <p className="text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{total}</p>
+              <p className="mt-0.5 text-xs font-medium text-slate-500">{STATUS_GROUPS[key].label}</p>
+            </button>
+          );
+        })}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

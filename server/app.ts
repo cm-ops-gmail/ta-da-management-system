@@ -25,6 +25,7 @@ import {
   toRequest, upsertApproval,
 } from "./store.js";
 import { addBusinessDays, cfgNum, cfgStr, computeRequest, eligibleModes, fuelRateFor } from "../shared/policy.js";
+import { STATUS_GROUPS, type StatusGroup } from "../shared/types.js";
 import type { RequestDraft, RequestRecord, Status } from "../shared/types.js";
 
 const app = express();
@@ -348,14 +349,17 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
 }));
 
 function summarise(rows: RequestRecord[]) {
-  const inFlight: Status[] = ["manager_review", "admin_review", "finance_review"];
+  // Counted from the shared group definitions, so a card's number always
+  // matches the list clicking it opens.
+  const count = (g: StatusGroup) =>
+    rows.filter((r) => (STATUS_GROUPS[g].statuses as readonly Status[]).includes(r.status)).length;
   return {
-    pending: rows.filter((r) => inFlight.includes(r.status)).length,
-    approved: rows.filter((r) => ["payment_processing", "paid", "completed"].includes(r.status)).length,
-    rejected: rows.filter((r) => r.status === "rejected").length,
-    returned: rows.filter((r) => r.status === "returned").length,
-    paymentPending: rows.filter((r) => r.status === "payment_processing").length,
-    paid: rows.filter((r) => ["paid", "completed"].includes(r.status)).length,
+    pending: count("pending"),
+    approved: count("approved"),
+    rejected: count("rejected"),
+    returned: count("returned"),
+    paymentPending: count("paymentPending"),
+    paid: count("paid"),
     totalClaims: rows.reduce((s, r) => s + r.totalClaim, 0),
     totalPaid: rows
       .filter((r) => ["paid", "completed"].includes(r.status))

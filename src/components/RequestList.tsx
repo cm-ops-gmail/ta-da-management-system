@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, RotateCcw } from "lucide-react";
+import { ChevronRight, RotateCcw, X } from "lucide-react";
 import { api, type RequestListItem } from "../api.js";
-import { STATUS_LABEL } from "../../shared/types.js";
+import { STATUS_GROUPS, STATUS_LABEL, type StatusGroup } from "../../shared/types.js";
 import { Card, Empty, Money, ProgressBar, SearchInput, Spinner, StatusBadge } from "./ui.js";
 
 export default function RequestList({
   scope, title, subtitle, onOpen, refreshKey, showEmployee = true, showFilters = false,
+  group, onClearGroup,
 }: {
   scope: string;
   title: string;
@@ -16,6 +17,9 @@ export default function RequestList({
   showEmployee?: boolean;
   /** The full filter bar — for the oversight register, not personal lists. */
   showFilters?: boolean;
+  /** Opened from a dashboard card: show only that card's claims. */
+  group?: StatusGroup;
+  onClearGroup?: () => void;
 }) {
   const [rows, setRows] = useState<RequestListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +47,12 @@ export default function RequestList({
     [rows],
   );
 
+  const groupStatuses = group ? (STATUS_GROUPS[group].statuses as readonly string[]) : null;
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
+      if (groupStatuses && !groupStatuses.includes(r.status)) return false;
       if (status && r.status !== status) return false;
       if (department && r.department !== department) return false;
       if (travelScope && r.scope !== travelScope) return false;
@@ -54,7 +61,7 @@ export default function RequestList({
       return [r.requestId, r.employeeName, r.employeeId, r.email, r.city, r.destination, r.purpose, r.department]
         .some((v) => String(v || "").toLowerCase().includes(needle));
     });
-  }, [rows, q, status, department, travelScope, waiting]);
+  }, [rows, q, status, department, travelScope, waiting, groupStatuses]);
 
   const activeFilters = [status, department, travelScope, waiting, q.trim()].filter(Boolean).length;
   const totalValue = filtered.reduce((s, r) => s + r.finalPayable, 0);
@@ -76,6 +83,16 @@ export default function RequestList({
 
       <Card>
         <div className="mb-4 space-y-2">
+          {group && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              {STATUS_GROUPS[group].label} only
+              {onClearGroup && (
+                <button onClick={onClearGroup} className="rounded-full p-0.5 hover:bg-brand-100" aria-label="Show all claims">
+                  <X size={12} />
+                </button>
+              )}
+            </span>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
             <SearchInput
               className="flex-1"

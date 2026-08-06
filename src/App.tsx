@@ -6,7 +6,7 @@ import {
 import { useTenMSAuth } from "@tenminuteschool/auth-admin-react";
 import { api, clearToken, getToken, setToken, setUnauthorizedHandler } from "./api.js";
 import { HOST_OWNS_SESSION } from "./lib/embed.js";
-import type { Policy, RequestDraft, SessionUser } from "../shared/types.js";
+import type { Policy, RequestDraft, SessionUser, StatusGroup } from "../shared/types.js";
 import Login from "./components/Login.js";
 import Dashboard from "./components/Dashboard.js";
 import DeskDashboard from "./components/DeskDashboard.js";
@@ -27,7 +27,9 @@ type Workspace = "self" | "desk";
 type View =
   | { name: "new"; editing?: { draft: RequestDraft; requestId: string } }
   | { name: "detail"; requestId: string }
-  | { name: string };
+  // `name` is a plain string on the catch-all, so the group has to live there
+  // too — TypeScript cannot discriminate a union on a non-literal.
+  | { name: string; group?: StatusGroup };
 
 interface NavItem {
   key: string;
@@ -164,8 +166,11 @@ export default function App() {
   // The phone tab bar only has room for a few — the rest stay in the drawer.
   const mobileNav = nav.slice(0, 4);
 
+  // A dashboard card arrives as "my-requests:returned" — the list it opens is
+  // the same one the sidebar opens, just narrowed to that card.
   const go = (name: string) => {
-    setView({ name });
+    const [view, group] = name.split(":");
+    setView(group ? { name: view, group: group as StatusGroup } : { name: view });
     setMenuOpen(false);
   };
   const refresh = () => setRefreshKey((k) => k + 1);
@@ -364,9 +369,11 @@ export default function App() {
               scope="mine"
               showEmployee={false}
               refreshKey={refreshKey}
+              group={(view as { group?: StatusGroup }).group}
               title="My Requests"
               subtitle="Every claim you have raised, with its live status."
               onOpen={(requestId) => setView({ name: "detail", requestId })}
+              onClearGroup={() => setView({ name: "my-requests" })}
             />
           )}
 
