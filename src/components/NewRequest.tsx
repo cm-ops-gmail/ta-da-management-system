@@ -4,8 +4,8 @@ import {
 } from "lucide-react";
 import { api } from "../api.js";
 import {
-  cfgNum, cfgStr, computeRequest, eligibleModes, emptyDraft, fuelRateFor, impliedLegs,
-  type ModeOption,
+  bankPayoutAllowed, cfgNum, cfgStr, computeRequest, eligibleModes, emptyDraft, fuelRateFor,
+  impliedLegs, type ModeOption,
 } from "../../shared/policy.js";
 import type { Leg, Policy, RequestDraft, SessionUser, TeamMember } from "../../shared/types.js";
 import { Card, ChoiceGrid, Field, Money, MultiSelect, Notice, SearchInput, Toggle } from "./ui.js";
@@ -136,6 +136,7 @@ export default function NewRequest({
               documentTypes={policy.documentTypes}
               payable={computation.finalPayable}
               currency={currency}
+              bankAllowed={bankPayoutAllowed(policy)}
             />
           )}
 
@@ -1122,13 +1123,14 @@ interface Upload {
 }
 
 function StepDocuments({
-  draft, set, documentTypes, payable, currency,
+  draft, set, documentTypes, payable, currency, bankAllowed,
 }: {
   draft: RequestDraft;
   set: (p: Partial<RequestDraft>) => void;
   documentTypes: string[];
   payable: number;
   currency: string;
+  bankAllowed: boolean;
 }) {
   // Names are only known for files uploaded in this session; a claim being
   // edited comes back with links alone, so those fall back to the URL.
@@ -1284,25 +1286,60 @@ function StepDocuments({
       </Card>
 
       <Card
-        title="Where should the money go?"
-        subtitle={`Finance pays the approved amount to this number.${payable > 0 ? ` Right now that is ${currency} ${payable}.` : ""}`}
+        title="Your personal bKash number"
+        subtitle={`Finance pays the approved amount here.${payable > 0 ? ` Right now that is ${currency} ${payable}.` : ""}`}
       >
-        <Field
-          label="Your bKash number"
-          required={payable > 0}
-          hint="11 digits starting with 01. Pre-filled from your employee record — change it if the money should go somewhere else."
-        >
-          <input
-            className="field"
-            type="tel"
-            inputMode="numeric"
-            autoComplete="tel"
-            maxLength={14}
-            placeholder="01712345678"
-            value={draft.bkashNumber}
-            onChange={(e) => set({ bkashNumber: e.target.value })}
-          />
-        </Field>
+        {/* Bank payment stays hidden until an administrator turns it on in
+            Configuration, and bKash is simply the only option until then. */}
+        {bankAllowed && (
+          <div className="mb-5">
+            <ChoiceGrid
+              value={draft.payoutMethod}
+              onChange={(payoutMethod) => set({ payoutMethod: payoutMethod as RequestDraft["payoutMethod"] })}
+              options={[
+                { value: "bkash", label: "bKash", description: "Paid to your personal bKash number." },
+                { value: "bank", label: "Bank account", description: "Paid into your bank account." },
+              ]}
+            />
+          </div>
+        )}
+
+        {draft.payoutMethod === "bank" && bankAllowed ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Bank name" required={payable > 0}>
+              <input className="field" value={draft.bankName} onChange={(e) => set({ bankName: e.target.value })} />
+            </Field>
+            <Field label="Account name" required={payable > 0} hint="Exactly as the bank has it.">
+              <input className="field" value={draft.bankAccountName} onChange={(e) => set({ bankAccountName: e.target.value })} />
+            </Field>
+            <Field label="Account number" required={payable > 0}>
+              <input className="field" inputMode="numeric" value={draft.bankAccountNumber} onChange={(e) => set({ bankAccountNumber: e.target.value })} />
+            </Field>
+            <Field label="Routing number" required={payable > 0}>
+              <input className="field" inputMode="numeric" value={draft.bankRoutingNumber} onChange={(e) => set({ bankRoutingNumber: e.target.value })} />
+            </Field>
+            <Field label="Branch" required={payable > 0}>
+              <input className="field" value={draft.bankBranch} onChange={(e) => set({ bankBranch: e.target.value })} />
+            </Field>
+          </div>
+        ) : (
+          <Field
+            label="Your bKash number"
+            required={payable > 0}
+            hint="11 digits starting with 01. Pre-filled from your employee record — change it if the money should go somewhere else."
+          >
+            <input
+              className="field"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              maxLength={14}
+              placeholder="01712345678"
+              value={draft.bkashNumber}
+              onChange={(e) => set({ bkashNumber: e.target.value })}
+            />
+          </Field>
+        )}
       </Card>
 
       <Card title="Note for the approvers">

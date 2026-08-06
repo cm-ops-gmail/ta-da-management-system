@@ -81,6 +81,9 @@ export interface SessionUser {
   managesOthers?: boolean;
 }
 
+/** How an approved claim is paid out. */
+export type PayoutMethod = "bkash" | "bank";
+
 export interface TeamMember {
   employeeId: string;
   name: string;
@@ -119,6 +122,13 @@ export interface RequestDraft {
   exceptionReason: string;
   /** Whether an eligible traveller actually wants the advance. */
   advanceWanted: boolean;
+  /** Where the payment goes. Bank is only offered when ALLOW_BANK_PAYOUT is on. */
+  payoutMethod: PayoutMethod;
+  bankName: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankRoutingNumber: string;
+  bankBranch: string;
   destination: string;
   startTime: string;
   endTime: string;
@@ -247,6 +257,12 @@ export interface RequestRecord {
   exceptionClaimed: boolean;
   exceptionReason: string;
   advanceWanted: boolean;
+  payoutMethod: PayoutMethod;
+  bankName: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankRoutingNumber: string;
+  bankBranch: string;
   destination: string;
   startTime: string;
   endTime: string;

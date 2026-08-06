@@ -120,6 +120,11 @@ export function fuelRateFor(policy: Policy, vehicleType: string): number {
     : cfgNum(policy, "FUEL_RATE_BIKE", 3);
 }
 
+/** Whether administrators have opened bank payment as an alternative to bKash. */
+export function bankPayoutAllowed(policy: Policy): boolean {
+  return String(cfgStr(policy, "ALLOW_BANK_PAYOUT", "No")).trim().toLowerCase() === "yes";
+}
+
 export function cityZone(policy: Policy, city: string): "Inside" | "Outside" | "" {
   return policy.cities.find((c) => c.city === city)?.zone ?? "";
 }
@@ -504,12 +509,32 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
   }
 
   // ── Where the money goes ──────────────────────────────────────────────────
-  const bkash = String(draft.bkashNumber || "").replace(/[\s-]/g, "");
+  // Bank payout is off until an administrator turns it on, so a draft asking
+  // for one is refused rather than quietly paid to a number instead.
+  const bankAllowed = bankPayoutAllowed(policy);
+  const payoutMethod = draft.payoutMethod === "bank" && bankAllowed ? "bank" : "bkash";
+  if (draft.payoutMethod === "bank" && !bankAllowed) {
+    errors.push("Bank payment is not switched on. Claims are paid by bKash.");
+  }
   if (finalPayable > 0) {
-    if (!bkash) {
-      errors.push("Enter the bKash number the payment should go to.");
-    } else if (!/^01[3-9]\d{8}$/.test(bkash)) {
-      errors.push("That bKash number does not look right — it should be 11 digits starting 01, e.g. 01712345678.");
+    if (payoutMethod === "bank") {
+      const bankFields: [string, string][] = [
+        ["Bank name", draft.bankName],
+        ["Account name", draft.bankAccountName],
+        ["Account number", draft.bankAccountNumber],
+        ["Routing number", draft.bankRoutingNumber],
+        ["Branch", draft.bankBranch],
+      ];
+      for (const [label, value] of bankFields) {
+        if (!String(value || "").trim()) errors.push(`${label} is required for a bank payment.`);
+      }
+    } else {
+      const bkash = String(draft.bkashNumber || "").replace(/[\s-]/g, "");
+      if (!bkash) {
+        errors.push("Enter the bKash number the payment should go to.");
+      } else if (!/^01[3-9]\d{8}$/.test(bkash)) {
+        errors.push("That bKash number does not look right — it should be 11 digits starting 01, e.g. 01712345678.");
+      }
     }
   }
 
@@ -632,6 +657,12 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     exceptionClaimed: false,
     exceptionReason: "",
     advanceWanted: false,
+    payoutMethod: "bkash",
+    bankName: "",
+    bankAccountName: "",
+    bankAccountNumber: "",
+    bankRoutingNumber: "",
+    bankBranch: "",
     destination: "",
     startTime: "",
     endTime: "",

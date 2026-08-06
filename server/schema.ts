@@ -99,6 +99,8 @@ export const TABS: TabSpec[] = [
       "destination_type",
       "route",
       "exception_claimed", "exception_reason", "advance_wanted",
+      "payout_method", "bank_name", "bank_account_name", "bank_account_number",
+      "bank_routing_number", "bank_branch",
     ],
   },
 
@@ -143,6 +145,7 @@ export const TABS: TabSpec[] = [
       ["COMPANY_ARRANGE_NOTICE_DAYS", 2, "Business days of notice required for company-arranged travel", "2026-01-01"],
       ["REQUIRE_DOCUMENT_LINK", "Yes", "Require at least one document link when money is claimed", "2026-01-01"],
       ["CURRENCY", "BDT", "Display currency", "2026-01-01"],
+      ["ALLOW_BANK_PAYOUT", "No", "Yes to let people be paid into a bank account as well as bKash. No pays everyone by bKash.", "2026-01-01"],
       ["REQUEST_ID_PREFIX", "TA", "Prefix used when generating request numbers", "2026-01-01"],
     ],
   },
