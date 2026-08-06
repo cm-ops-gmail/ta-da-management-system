@@ -627,16 +627,23 @@ export function impliedLegs(policy: Policy, draft: RequestDraft): Leg[] {
     ({ travelDate, mode, travelFrom, travelTo, amount: 0, note: "" });
 
   if (draft.scope === "inside") {
-    const to = draft.destination || draft.destinationType || "";
-    return [leg(draft.fromDate, draft.city, to)];
+    const kind = policy.destinationTypes.find((d) => d.value === draft.destinationType);
+    // An "Other Office" destination keeps which office in the purpose, so name
+    // it here — "Other Office" on its own says nothing about where you went.
+    const named = kind?.needs === "office"
+      ? [kind.label, draft.purpose].filter(Boolean).join(" — ")
+      : kind?.label || "";
+    return [leg(draft.fromDate, draft.city, draft.destination || named)];
   }
 
   const route = policy.routes.find((r) => r.value === draft.route);
   const from = route?.from || "";
   const to = draft.city || route?.to || "";
   const out = [leg(draft.fromDate, from, to)];
-  // A return date means a second ticket, priced separately.
-  if (draft.toDate && draft.toDate !== draft.fromDate) out.push(leg(draft.toDate, to, from));
+  // Outside-city travel is there and back, so the return is a second ticket
+  // priced separately — including a same-day return. It waits for a return
+  // date rather than guessing one.
+  if (draft.toDate) out.push(leg(draft.toDate, to, from));
   return out;
 }
 
@@ -650,7 +657,10 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     travelType: "individual",
     teamMembers: [],
     fromDate: today,
-    toDate: today,
+    // Outside-city travel has no sensible default return date. Defaulting it to
+    // today invented a return leg dated before the outbound one, or dated the
+    // same day when the trip started today.
+    toDate: scope === "outside" ? "" : today,
     purpose: "",
     destinationType: "",
     route: "",

@@ -233,6 +233,8 @@ function StepTravelType({
             set({
               scope,
               city: scope === "inside" ? insideCities[0] || "" : "",
+              // Outside-city asks for a return date; inside-city is a single day.
+              toDate: scope === "inside" ? draft.fromDate : "",
               // Route belongs to outside-city, destination to inside-city;
               // neither should survive a switch to the other.
               route: "",
@@ -420,34 +422,30 @@ function StepTravelType({
         </div>
       </Card>
 
-      {/* What is claimed is worked out from the hours and the transport, so
-          there is nothing to choose — only to report. */}
-      <Card
-        title="Where and when did you work?"
-        subtitle={
-          outside
-            ? "Recorded on the claim. Outside-city Per-Diem follows the trip length and your band."
-            : "Working hours are calculated automatically — TA, Per-Diem or both follow from them."
-        }
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Worked at" required={!outside}>
-            <select className="field" value={draft.workedAt} onChange={(e) => set({ workedAt: e.target.value })}>
-              <option value="">Select</option>
-              {policy.workedAtOptions.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </Field>
-          <div />
-          <Field label="Start time" required={!outside}>
-            <input type="time" className="field" value={draft.startTime} onChange={(e) => set({ startTime: e.target.value })} />
-          </Field>
-          <Field label="End time" required={!outside}>
-            <input type="time" className="field" value={draft.endTime} onChange={(e) => set({ endTime: e.target.value })} />
-          </Field>
-        </div>
-      </Card>
+      {!outside && (
+        <Card
+          title="Where and when did you work?"
+          subtitle="Working hours are calculated automatically — TA, Per-Diem or both follow from them."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Worked at" required>
+              <select className="field" value={draft.workedAt} onChange={(e) => set({ workedAt: e.target.value })}>
+                <option value="">Select</option>
+                {policy.workedAtOptions.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            </Field>
+            <div />
+            <Field label="Start time" required>
+              <input type="time" className="field" value={draft.startTime} onChange={(e) => set({ startTime: e.target.value })} />
+            </Field>
+            <Field label="End time" required>
+              <input type="time" className="field" value={draft.endTime} onChange={(e) => set({ endTime: e.target.value })} />
+            </Field>
+          </div>
+        </Card>
+      )}
 
       <Card title="Who is travelling?">
         <ChoiceGrid
@@ -745,6 +743,7 @@ function StepTransport({
         />
       )}
 
+      {inside && (
       <Card title="Any exception?">
         <div className="space-y-3">
           <Toggle
@@ -775,6 +774,7 @@ function StepTransport({
           )}
         </div>
       </Card>
+      )}
     </>
   );
 }
@@ -983,14 +983,16 @@ function StepAllowances({
         </div>
       </Card>
 
-      {/* Only the costs this trip can actually have: a bus journey has no
-          car-pool split and no air fare to declare. */}
+      {/* Only the costs this trip can actually have. A bus, train, launch or
+          personal-vehicle journey has no car-pool split and no air fare, so the
+          whole section stays away rather than showing empty boxes. */}
+      {["RentACar", "Flight", "RideSharing"].includes(draft.transportMode) && (
       <Card title="Other costs">
         <div className="grid gap-4 sm:grid-cols-2">
-          {draft.transportMode === "RentACar" && (
+          {["RentACar", "RideSharing"].includes(draft.transportMode) && (
             <>
               <Field
-                label={`Rent-a-car amount (${currency})`}
+                label={`${draft.transportMode === "RideSharing" ? "Shared car" : "Rent-a-car"} amount (${currency})`}
                 hint={`Needs at least ${cfgNum(policy, "RENT_A_CAR_MIN_HEADCOUNT", 3)} employees; limit ${currency} ${cfgNum(policy, "RENT_A_CAR_LIMIT", 6000)} one way.`}
               >
                 <input
@@ -1038,6 +1040,7 @@ function StepAllowances({
           </Field>
         </div>
       </Card>
+      )}
 
       <Card
         title="Travel advance"

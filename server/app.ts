@@ -425,7 +425,10 @@ function normaliseDraft(raw: unknown): RequestDraft {
     travelType: d.travelType === "team" ? "team" : "individual",
     teamMembers: Array.isArray(d.teamMembers) ? d.teamMembers : [],
     fromDate: d.fromDate || "",
-    toDate: d.toDate || d.fromDate || "",
+    // Left empty rather than falling back to the departure date: an
+    // outside-city claim with no return date has to be refused, and silently
+    // making it a same-day trip both hid that and paid one day of per-diem.
+    toDate: String(d.toDate || ""),
     purpose: d.purpose || "",
     destinationType: d.destinationType || "",
     route: d.route || "",
