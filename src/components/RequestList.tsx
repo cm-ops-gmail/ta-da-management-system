@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, RotateCcw, X } from "lucide-react";
+import { ChevronRight, Download, RotateCcw, X } from "lucide-react";
 import { api, type RequestListItem } from "../api.js";
 import { STATUS_GROUPS, STATUS_LABEL, type StatusGroup } from "../../shared/types.js";
+import { downloadCSV } from "../lib/csv.js";
 import { Card, Empty, Money, ProgressBar, SearchInput, Spinner, StatusBadge } from "./ui.js";
 
 export default function RequestList({
   scope, title, subtitle, onOpen, refreshKey, showEmployee = true, showFilters = false,
-  group, onClearGroup,
+  group, onClearGroup, quickFilters, selectable = false,
 }: {
   scope: string;
   title: string;
@@ -20,6 +21,10 @@ export default function RequestList({
   /** Opened from a dashboard card: show only that card's claims. */
   group?: StatusGroup;
   onClearGroup?: () => void;
+  /** One-tap filters above the list, e.g. Finance's own queue. */
+  quickFilters?: { key: string; label: string; statuses: string[] }[];
+  /** Tick claims off and export them — Finance building a payment file. */
+  selectable?: boolean;
 }) {
   const [rows, setRows] = useState<RequestListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +33,8 @@ export default function RequestList({
   const [department, setDepartment] = useState("");
   const [travelScope, setTravelScope] = useState("");
   const [waiting, setWaiting] = useState("");
+  const [quick, setQuick] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLoading(true);
@@ -48,11 +55,13 @@ export default function RequestList({
   );
 
   const groupStatuses = group ? (STATUS_GROUPS[group].statuses as readonly string[]) : null;
+  const quickStatuses = quick ? quickFilters?.find((f) => f.key === quick)?.statuses ?? null : null;
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (groupStatuses && !groupStatuses.includes(r.status)) return false;
+      if (quickStatuses && !quickStatuses.includes(r.status)) return false;
       if (status && r.status !== status) return false;
       if (department && r.department !== department) return false;
       if (travelScope && r.scope !== travelScope) return false;
@@ -61,12 +70,22 @@ export default function RequestList({
       return [r.requestId, r.employeeName, r.employeeId, r.email, r.city, r.destination, r.purpose, r.department]
         .some((v) => String(v || "").toLowerCase().includes(needle));
     });
-  }, [rows, q, status, department, travelScope, waiting, groupStatuses]);
+  }, [rows, q, status, department, travelScope, waiting, groupStatuses, quickStatuses]);
 
-  const activeFilters = [status, department, travelScope, waiting, q.trim()].filter(Boolean).length;
+  const activeFilters = [status, department, travelScope, waiting, quick, q.trim()].filter(Boolean).length;
+  const pickedRows = filtered.filter((r) => picked.has(r.requestId));
+  const allPicked = !!filtered.length && pickedRows.length === filtered.length;
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const totalValue = filtered.reduce((s, r) => s + r.finalPayable, 0);
 
   function reset() {
+    setQuick("");
+    setPicked(new Set());
     setQ("");
     setStatus("");
     setDepartment("");
@@ -130,6 +149,29 @@ export default function RequestList({
             </div>
           )}
 
+          {quickFilters?.length && (
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {[{ key: "", label: "All" }, ...quickFilters].map((f) => (
+                <button
+                  key={f.key}
+                  // Changing what is on screen clears the selection: exporting
+                  // a row you can no longer see would be a nasty surprise.
+                  onClick={() => { setQuick(f.key); setPicked(new Set()); }}
+                  className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    quick === f.key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {f.label}
+                  <span className="ml-1.5 tabular-nums opacity-70">
+                    {f.key
+                      ? rows.filter((r) => quickFilters.find((x) => x.key === f.key)!.statuses.includes(r.status)).length
+                      : rows.length}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) || null}
+
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
             <span>
               <span className="font-semibold text-slate-700">{filtered.length}</span> of {rows.length} claim(s)
@@ -146,6 +188,32 @@ export default function RequestList({
           </div>
         </div>
 
+        {selectable && !!filtered.length && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                checked={allPicked}
+                ref={(el) => { if (el) el.indeterminate = picked.size > 0 && !allPicked; }}
+                onChange={(e) => setPicked(e.target.checked ? new Set(filtered.map((r) => r.requestId)) : new Set())}
+              />
+              Select all
+            </label>
+            <span className="text-xs text-slate-500">
+              {picked.size ? `${picked.size} selected · ` : ""}
+              <Money value={pickedRows.reduce((sum, r) => sum + r.finalPayable, 0)} /> payable
+            </span>
+            <button
+              className="btn-primary ml-auto !px-3 !py-1.5 text-xs"
+              disabled={!picked.size}
+              onClick={() => downloadCSV(`claims-${new Date().toISOString().slice(0, 10)}.csv`, pickedRows)}
+            >
+              <Download size={14} /> Download CSV
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <Spinner />
         ) : !filtered.length ? (
@@ -158,10 +226,19 @@ export default function RequestList({
             {/* Phones: one tappable card per claim — tables don't fit a phone. */}
             <ul className="space-y-2 md:hidden">
               {filtered.map((r) => (
-                <li key={r.requestId}>
+                <li key={r.requestId} className="flex items-start gap-2">
+                  {selectable && (
+                    <input
+                      type="checkbox"
+                      className="mt-4 size-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      checked={picked.has(r.requestId)}
+                      onChange={() => toggle(r.requestId)}
+                      aria-label={`Select ${r.requestId}`}
+                    />
+                  )}
                   <button
                     onClick={() => onOpen(r.requestId)}
-                    className="w-full rounded-xl border border-slate-200 p-3 text-left transition active:bg-slate-50"
+                    className="w-full min-w-0 rounded-xl border border-slate-200 p-3 text-left transition active:bg-slate-50"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -202,6 +279,7 @@ export default function RequestList({
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                   <tr>
+                    {selectable && <th className="w-10 px-3 py-2.5" />}
                     <th className="px-3 py-2.5 font-semibold">Request</th>
                     {showEmployee && <th className="px-3 py-2.5 font-semibold">Employee</th>}
                     <th className="px-3 py-2.5 font-semibold">Travel</th>
@@ -218,6 +296,17 @@ export default function RequestList({
                       onClick={() => onOpen(r.requestId)}
                       className="cursor-pointer transition hover:bg-slate-50"
                     >
+                      {selectable && (
+                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            checked={picked.has(r.requestId)}
+                            onChange={() => toggle(r.requestId)}
+                            aria-label={`Select ${r.requestId}`}
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-3">
                         <span className="font-mono text-xs font-semibold text-slate-700">{r.requestId}</span>
                         {r.isMine && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">YOU</span>}

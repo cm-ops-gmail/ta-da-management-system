@@ -296,7 +296,9 @@ app.get("/api/requests", requireAuth, handler(async (req, res) => {
       case "processed": return !isMine(r) && actedOn.has(r.requestId);
       case "desk": return !isMine(r);
       case "desk_advance": return !isMine(r) && r.advanceRequested > 0;
-      case "desk_payments": return !isMine(r) && settled(r);
+      // Finance's own screen: what is waiting on their approval as well as
+      // what is waiting to be paid.
+      case "desk_payments": return !isMine(r) && (settled(r) || r.status === "finance_review");
       default: return true;
     }
   });

@@ -431,8 +431,14 @@ export default function App() {
             <RequestList
               scope="desk_payments"
               refreshKey={refreshKey}
+              selectable
+              quickFilters={[
+                { key: "finance_review", label: "Pending approval", statuses: ["finance_review"] },
+                { key: "payment_processing", label: "Pending payment", statuses: ["payment_processing"] },
+                { key: "paid", label: "Paid", statuses: ["paid", "completed"] },
+              ]}
               title="Payments"
-              subtitle="Other people's claims at payment stage, paid and completed."
+              subtitle="Claims waiting on Finance — to approve, to pay, and already paid."
               onOpen={(requestId) => setView({ name: "detail", requestId })}
             />
           )}
