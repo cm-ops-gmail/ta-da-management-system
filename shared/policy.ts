@@ -44,6 +44,19 @@ export function isWeekend(date: string | Date): boolean {
 }
 
 /** Inclusive day span between two ISO dates, split into weekday / weekend. */
+/** Today, as the plain date the sheet stores. */
+export function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Whole days from one plain date to another; negative when `to` is earlier. */
+export function daysBetween(from: string, to: string): number {
+  const a = new Date(`${from}T00:00:00`).getTime();
+  const b = new Date(`${to}T00:00:00`).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.round((b - a) / 86400000);
+}
+
 export function daySpan(fromDate: string, toDate: string): { total: number; weekday: number; weekend: number } {
   const from = new Date(`${fromDate}T00:00:00`);
   const to = new Date(`${toDate || fromDate}T00:00:00`);
@@ -450,6 +463,25 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
 
   // ── Cross-field validation ────────────────────────────────────────────────
   if (!draft.fromDate) errors.push("Travel date is required.");
+
+  // A claim has to be filed while the trip is still fresh — counted from the
+  // day travel ended, so a five-day trip gets its window after the return.
+  const windowDays = cfgNum(policy, "CLAIM_WINDOW_DAYS", 7);
+  const endedOn = draft.scope === "outside" ? draft.toDate || draft.fromDate : draft.fromDate;
+  const daysSince = endedOn ? daysBetween(endedOn, todayISO()) : 0;
+  if (windowDays > 0 && daysSince > windowDays) {
+    const unlockedUntil = user.claimUnlockUntil || "";
+    // An administrator can open the window for someone who has a reason.
+    if (unlockedUntil && todayISO() <= unlockedUntil) {
+      notes.push(
+        `Filed ${daysSince} days after travel, past the ${windowDays}-day window — allowed because Administration unlocked late claims for you until ${unlockedUntil}.`,
+      );
+    } else {
+      errors.push(
+        `You cannot claim for this travel: it ended ${daysSince} days ago and claims must be filed within ${windowDays} days. Contact Administration to unlock it.`,
+      );
+    }
+  }
   if (!draft.purpose) errors.push("Purpose is required.");
   if (draft.scope === "inside") {
     // Inside-city trips pick the destination from a list; what that choice

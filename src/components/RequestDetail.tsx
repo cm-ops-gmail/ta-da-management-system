@@ -148,6 +148,18 @@ export default function RequestDetail({
         {r.status === "returned" && (
           <div className="mt-4"><Notice tone="warn" items={[`Returned for correction — ${lastRemark(a) || "see remarks"}`]} /></div>
         )}
+        {r.approvedAmount > 0 && (
+          <div className="mt-4">
+            <Notice
+              tone="warn"
+              items={[
+                `Approved at ${currency} ${r.approvedAmount} instead of the ${currency} ${r.totalClaim} claimed` +
+                `${r.approvedAmountBy ? ` by ${r.approvedAmountBy.replace(/<.*>/, "").trim()}` : ""}` +
+                `${r.approvedAmountNote ? ` — ${r.approvedAmountNote}` : ""}`,
+              ]}
+            />
+          </div>
+        )}
         {r.status === "payment_disputed" && (
           <div className="mt-4">
             <Notice
@@ -442,8 +454,18 @@ export default function RequestDetail({
               ))}
               <div className="flex justify-between border-t border-slate-200 pt-3">
                 <span className="font-semibold text-slate-700">Total claim</span>
-                <span className="font-bold text-slate-900"><Money value={r.totalClaim} currency={currency} /></span>
+                <span className={`font-bold ${r.approvedAmount ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                  <Money value={r.totalClaim} currency={currency} />
+                </span>
               </div>
+              {/* Both figures stay on screen: the claim as filed, and what an
+                  approver decided to pay instead. */}
+              {r.approvedAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="font-semibold text-amber-700">Approved amount</span>
+                  <span className="font-bold text-amber-700"><Money value={r.approvedAmount} currency={currency} /></span>
+                </div>
+              )}
               {r.advanceRequested > 0 && (
                 <div className="flex justify-between">
                   <span className="text-slate-600">Advance adjustment</span>
@@ -542,6 +564,8 @@ export default function RequestDetail({
       {action && (
         <ActionModal
           action={action}
+          claimed={r.approvedAmount || r.totalClaim}
+          currency={currency}
           requestId={r.requestId}
           onClose={() => setAction(null)}
           onDone={() => { setAction(null); load(); onChanged(); }}
@@ -632,22 +656,27 @@ const ACTION_TITLE = {
 };
 
 function ActionModal({
-  action, requestId, onClose, onDone,
+  action, requestId, onClose, onDone, claimed, currency,
 }: {
   action: keyof typeof ACTION_TITLE;
   requestId: string;
   onClose: () => void;
   onDone: () => void;
+  /** What is payable as it stands, so an approver can pay something else. */
+  claimed: number;
+  currency: string;
 }) {
   const [remarks, setRemarks] = useState("");
+  const [amount, setAmount] = useState(claimed);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const changed = action === "approve" && Number(amount) !== claimed;
 
   async function go() {
     setBusy(true);
     setError("");
     try {
-      await api.act(requestId, action, remarks);
+      await api.act(requestId, action, remarks, action === "approve" ? Number(amount) : undefined);
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -658,17 +687,43 @@ function ActionModal({
   return (
     <Modal title={ACTION_TITLE[action]} onClose={onClose}>
       <div className="space-y-4">
+        {action === "approve" && (
+          <Field
+            label={`Approve amount (${currency})`}
+            hint={
+              changed
+                ? `Claimed ${currency} ${claimed} — you are approving ${currency} ${amount}. The claim itself is not changed; Finance sees both.`
+                : "Change this to approve less than was claimed."
+            }
+          >
+            <input
+              type="number"
+              min={0}
+              className="field"
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value))}
+            />
+          </Field>
+        )}
         <Field
           label="Remarks"
-          required={action !== "approve"}
-          hint={action === "approve" ? "Optional — visible to the employee." : "Explain what the employee needs to do."}
+          required={action !== "approve" || changed}
+          hint={
+            changed
+              ? "Required — the employee, their line manager and Finance all see why the amount changed."
+              : action === "approve" ? "Optional — visible to the employee." : "Explain what the employee needs to do."
+          }
         >
           <textarea className="field min-h-24" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </Field>
         {error && <Notice tone="error" items={[error]} />}
         <div className="flex justify-end gap-2">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className={action === "reject" ? "btn-danger" : "btn-primary"} onClick={go} disabled={busy}>
+          <button
+            className={action === "reject" ? "btn-danger" : "btn-primary"}
+            onClick={go}
+            disabled={busy || (changed && !remarks.trim())}
+          >
             Confirm
           </button>
         </div>

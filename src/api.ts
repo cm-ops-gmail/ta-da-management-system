@@ -194,12 +194,17 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ draft, submit }),
     }),
-  act: (id: string, action: string, remarks: string) =>
-    post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/action`, { action, remarks }),
+  act: (id: string, action: string, remarks: string, approvedAmount?: number) =>
+    post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/action`, {
+      action, remarks, approvedAmount,
+    }),
   pay: (id: string, payload: Record<string, unknown>) =>
     post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/payment`, payload),
   acknowledge: (id: string, received: boolean, note = "") =>
     post<{ request: RequestRecord }>(`/requests/${encodeURIComponent(id)}/acknowledge`, { received, note }),
+
+  claimUnlock: (employeeId: string, until: string) =>
+    post<{ ok: boolean; employeeId: string; until: string }>("/admin/claim-unlock", { employeeId, until }),
 
   advances: (scope: "mine" | "desk") =>
     call<{ requests: (RequestRecord & { myStep: AdvanceStep | null })[] }>(`/advances?scope=${scope}`),

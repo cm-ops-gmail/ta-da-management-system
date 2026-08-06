@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { api } from "../api.js";
+import { api, type EmployeeLite } from "../api.js";
 import { Card, Notice, Spinner } from "./ui.js";
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -70,6 +70,8 @@ export default function AdminConfig() {
           chain never needs a code change.
         </p>
       </div>
+
+      <ClaimUnlock />
 
       <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
         {tabs.map((t) => (
@@ -182,5 +184,123 @@ export default function AdminConfig() {
         {!rows.length && <p className="py-8 text-center text-sm text-slate-400">No rows. Add one to get started.</p>}
       </Card>
     </div>
+  );
+}
+
+/**
+ * Lets one person file a claim the window has already closed on.
+ *
+ * Granted against the employee, not a claim: the claim they need to file does
+ * not exist yet — the window is what is stopping them creating it.
+ */
+function ClaimUnlock() {
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState<EmployeeLite[]>([]);
+  const [picked, setPicked] = useState<EmployeeLite | null>(null);
+  const [until, setUntil] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!q.trim() || picked) { setFound([]); return; }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const { employees } = await api.employees(q.trim());
+        if (!cancelled) setFound(employees.slice(0, 6));
+      } catch { /* the list is a convenience; typing an ID still works */ }
+    }, 200);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [q, picked]);
+
+  async function save(date: string) {
+    if (!picked) return;
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.claimUnlock(picked.employeeId, date);
+      setMessage(
+        date
+          ? `${picked.name} can file late claims until ${date}.`
+          : `Late claims closed again for ${picked.name}.`,
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card
+      title="Unlock a late claim"
+      subtitle="Claims must be filed within the window set by CLAIM_WINDOW_DAYS. This lets one person file past it."
+    >
+      <div className="grid gap-4 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
+        <div className="relative">
+          <label className="label">Employee</label>
+          {picked ? (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5">
+              <span className="min-w-0 flex-1 truncate text-sm">
+                <span className="font-medium text-slate-800">{picked.name}</span>{" "}
+                <span className="text-slate-400">{picked.employeeId}</span>
+              </span>
+              <button
+                onClick={() => { setPicked(null); setQ(""); setMessage(""); }}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+                aria-label="Choose someone else"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ) : (
+            <input
+              className="field"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search by name or employee ID"
+            />
+          )}
+          {!picked && found.length > 0 && (
+            <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+              {found.map((e) => (
+                <li key={e.employeeId}>
+                  <button
+                    onClick={() => { setPicked(e); setFound([]); }}
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                  >
+                    <span className="font-medium text-slate-800">{e.name}</span>{" "}
+                    <span className="text-xs text-slate-400">{e.employeeId} · {e.department}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div>
+          <label className="label">Allow until</label>
+          <input type="date" className="field" value={until} onChange={(e) => setUntil(e.target.value)} />
+        </div>
+
+        <div className="flex gap-2">
+          <button className="btn-primary" disabled={!picked || busy || !until} onClick={() => save(until)}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : null} Unlock
+          </button>
+          <button className="btn-ghost" disabled={!picked || busy} onClick={() => save("")}>
+            Lock
+          </button>
+        </div>
+      </div>
+
+      {message && <div className="mt-4"><Notice tone="info" items={[message]} /></div>}
+      {error && <div className="mt-4"><Notice tone="error" items={[error]} /></div>}
+    </Card>
   );
 }

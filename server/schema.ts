@@ -48,6 +48,9 @@ export const TABS: TabSpec[] = [
       "employee_id", "name", "email", "password", "gender", "band",
       "department", "designation", "line_manager_id", "roles",
       "payment_method", "account_number", "status",
+      // Set by an administrator to let this person file a late claim: they may
+      // submit past the window until the end of this date.
+      "claim_unlock_until",
     ],
     seed: [
       ["", "EMP-1001", "Ariful Islam", "ariful@10ms.com", "1234", "Male", "G", "Sales", "Sales Executive", "EMP-1005", "user", "bKash", "01700000001", "Active"],
@@ -102,6 +105,7 @@ export const TABS: TabSpec[] = [
       "payout_method", "bank_name", "bank_account_name", "bank_account_number",
       "bank_routing_number", "bank_branch",
       "payment_ack", "payment_ack_at", "payment_ack_note",
+      "approved_amount", "approved_amount_by", "approved_amount_at", "approved_amount_note",
     ],
   },
 
@@ -146,6 +150,7 @@ export const TABS: TabSpec[] = [
       ["COMPANY_ARRANGE_NOTICE_DAYS", 2, "Business days of notice required for company-arranged travel", "2026-01-01"],
       ["REQUIRE_DOCUMENT_LINK", "Yes", "Require at least one document link when money is claimed", "2026-01-01"],
       ["CURRENCY", "BDT", "Display currency", "2026-01-01"],
+      ["CLAIM_WINDOW_DAYS", 7, "Days after travel within which a claim must be submitted. An administrator can unlock a late one.", "2026-01-01"],
       ["ALLOW_BANK_PAYOUT", "No", "Yes to let people be paid into a bank account as well as bKash. No pays everyone by bKash.", "2026-01-01"],
       ["REQUEST_ID_PREFIX", "TA", "Prefix used when generating request numbers", "2026-01-01"],
     ],

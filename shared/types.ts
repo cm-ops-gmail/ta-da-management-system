@@ -93,6 +93,8 @@ export interface SessionUser {
   roles: Role[];
   paymentMethod: string;
   accountNumber: string;
+  /** Set by an administrator: submit late until the end of this date. */
+  claimUnlockUntil?: string;
   /**
    * Derived, not stored: true when at least one active employee lists this
    * person as their line manager. Recomputed on every sign-in and /me, so
@@ -340,6 +342,14 @@ export interface RequestRecord {
   paymentAck: string;
   paymentAckAt: string;
   paymentAckNote: string;
+  /**
+   * What an approver decided to pay, when that differs from what was claimed.
+   * 0 means nobody changed it — the claim stands as submitted.
+   */
+  approvedAmount: number;
+  approvedAmountBy: string;
+  approvedAmountAt: string;
+  approvedAmountNote: string;
 }
 
 /** One request = one row in the Approvals tab, with a column group per desk. */

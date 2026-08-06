@@ -24,7 +24,7 @@ import {
   managesOthers, nextRequestId, nowISO, parseLinks, rememberAuthId, STAGE_COLUMN, toApprovalRow,
   toRequest, upsertApproval,
 } from "./store.js";
-import { addBusinessDays, cfgNum, cfgStr, computeRequest, eligibleModes, fuelRateFor } from "../shared/policy.js";
+import { addBusinessDays, cfgNum, cfgStr, computeRequest, eligibleModes, fuelRateFor, money } from "../shared/policy.js";
 import { STATUS_GROUPS, type StatusGroup } from "../shared/types.js";
 import type { RequestDraft, RequestRecord, Status } from "../shared/types.js";
 
@@ -402,7 +402,7 @@ app.post("/api/requests/preview", requireAuth, handler(async (req, res) => {
   const policy = await loadPolicy();
   const draft = normaliseDraft(req.body?.draft);
   res.json({
-    computation: computeRequest(policy, draft, req.session),
+    computation: computeRequest(policy, draft, await currentSession(req.session)),
     modes: eligibleModes(policy, {
       band: req.session.band,
       gender: req.session.gender,
@@ -584,6 +584,10 @@ function buildRecord(
     paymentAck: base.paymentAck ?? "",
     paymentAckAt: base.paymentAckAt ?? "",
     paymentAckNote: base.paymentAckNote ?? "",
+    approvedAmount: base.approvedAmount ?? 0,
+    approvedAmountBy: base.approvedAmountBy ?? "",
+    approvedAmountAt: base.approvedAmountAt ?? "",
+    approvedAmountNote: base.approvedAmountNote ?? "",
   };
 }
 
@@ -635,6 +639,17 @@ async function ensureUniqueRequestId(
  * one waits until the last is closed off. Drafts are exempt — only submitting
  * is blocked.
  */
+/**
+ * The session as the sheet has it right now.
+ *
+ * A late-claim unlock is granted after the token was signed, so trusting the
+ * token would keep the window shut until the person signed in again.
+ */
+async function currentSession(session: Session): Promise<Session> {
+  const row = (await allEmployees()).find((e) => e.employeeId === session.employeeId);
+  return row ? { ...session, claimUnlockUntil: row.claimUnlockUntil || "" } : session;
+}
+
 async function awaitingAcknowledgement(employeeId: string): Promise<string[]> {
   const rows = await readTab("Requests");
   return rows
@@ -647,7 +662,7 @@ app.post("/api/requests", requireAuth, handler(async (req, res) => {
   const policy = await loadPolicy();
   const draft = normaliseDraft(req.body?.draft);
   const submit = req.body?.submit !== false;
-  const computation = computeRequest(policy, draft, req.session);
+  const computation = computeRequest(policy, draft, await currentSession(req.session));
 
   if (submit) {
     const waiting = await awaitingAcknowledgement(req.session.employeeId);
@@ -726,7 +741,7 @@ app.put("/api/requests/:id", requireAuth, handler(async (req, res) => {
       return;
     }
   }
-  const computation = computeRequest(policy, draft, req.session);
+  const computation = computeRequest(policy, draft, await currentSession(req.session));
   if (submit && computation.errors.length) {
     res.status(400).json({ error: computation.errors[0], computation });
     return;
@@ -813,6 +828,36 @@ app.post("/api/requests/:id/action", requireAuth, handler(async (req, res) => {
   let title = "";
   let message = "";
 
+  // An approver may pay something other than what was claimed. It never edits
+  // the employee's application — the claim stands as filed and the approved
+  // figure sits beside it, so everyone downstream can see both.
+  let approved = {
+    approvedAmount: record.approvedAmount,
+    approvedAmountBy: record.approvedAmountBy,
+    approvedAmountAt: record.approvedAmountAt,
+    approvedAmountNote: record.approvedAmountNote,
+  };
+  if (action === "approve" && req.body?.approvedAmount !== undefined && req.body?.approvedAmount !== null) {
+    const amount = Number(req.body.approvedAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      res.status(400).json({ error: "Enter a valid approved amount." });
+      return;
+    }
+    const current = record.approvedAmount || record.totalClaim;
+    if (amount !== current) {
+      if (!remarks.trim()) {
+        res.status(400).json({ error: "Add a note explaining why the amount was changed." });
+        return;
+      }
+      approved = {
+        approvedAmount: amount,
+        approvedAmountBy: `${req.session.name} <${req.session.email}>`,
+        approvedAmountAt: nowISO(),
+        approvedAmountNote: remarks.trim(),
+      };
+    }
+  }
+
   if (action === "approve") {
     next = NEXT_STATUS[stage] || record.status;
     stageStatus = "Approved";
@@ -835,8 +880,13 @@ app.post("/api/requests/:id/action", requireAuth, handler(async (req, res) => {
 
   const updated: RequestRecord = {
     ...record,
+    ...approved,
     status: next,
     updatedAt: nowISO(),
+    // What Finance actually pays follows the approved figure once one is set.
+    finalPayable: money(
+      (approved.approvedAmount || record.totalClaim) - record.advanceRequested,
+    ),
     advanceStatus: record.advanceRequested > 0 && action === "approve" && stage === "manager_review"
       ? "manager_approved"
       : record.advanceStatus,
@@ -1158,6 +1208,39 @@ app.get("/api/admin/tabs", requireAuth, handler(async (req, res) => {
     await Promise.all(EDITABLE_TABS.map(async (t) => [t, await getHeaders(t)] as const)),
   );
   res.json({ tabs: EDITABLE_TABS, headers, data });
+}));
+
+/**
+ * Opens the claim window for one person who missed it.
+ *
+ * Granted against the employee rather than a claim, because the claim they
+ * need to file does not exist yet — the window is what is stopping them
+ * creating it.
+ */
+app.post("/api/admin/claim-unlock", requireAuth, handler(async (req, res) => {
+  if (!hasRole(req.session, "admin", "hr")) {
+    res.status(403).json({ error: "Admin access required." });
+    return;
+  }
+  const employeeId = String(req.body?.employeeId || "").trim();
+  const until = String(req.body?.until || "").trim();
+  // An empty date takes the unlock away again.
+  if (until && !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+    res.status(400).json({ error: "Give the date to unlock until, as YYYY-MM-DD." });
+    return;
+  }
+  const rows = await readTab("Employees");
+  const row = rows.find((r) => r.employee_id === employeeId);
+  if (!row) {
+    res.status(404).json({ error: "No employee with that ID." });
+    return;
+  }
+  // updateRow replaces the whole row, so the record is carried over intact and
+  // only the one cell changed.
+  const { _row, ...rest } = row;
+  await updateRow("Employees", _row, { ...rest, claim_unlock_until: until });
+  invalidateEmployees();
+  res.json({ ok: true, employeeId, until });
 }));
 
 app.post("/api/admin/tabs/:tab", requireAuth, handler(async (req, res) => {
