@@ -236,9 +236,11 @@ function StepTravelType({
                   value={draft.route}
                   // The city is the route's end, so it is set here — except on
                   // an "Other city" route, where it is what gets typed next.
+                  // Destination follows the city; it stays editable for anyone
+                  // who wants to name the actual office rather than the city.
                   onChange={(e) => {
                     const picked = policy.routes.find((r) => r.value === e.target.value);
-                    set({ route: e.target.value, city: picked?.to || "" });
+                    set({ route: e.target.value, city: picked?.to || "", destination: picked?.to || "" });
                   }}
                 >
                   <option value="">Select a route</option>
@@ -253,7 +255,7 @@ function StepTravelType({
                   <input
                     className="field"
                     value={draft.city}
-                    onChange={(e) => set({ city: e.target.value })}
+                    onChange={(e) => set({ city: e.target.value, destination: e.target.value })}
                     placeholder="Which city?"
                   />
                 </Field>
@@ -376,7 +378,7 @@ function StepTravelType({
           {/* Inside-city says where it went above, beside the city. */}
           {outside && (
             <>
-              <Field label="Destination" hint="Specific place / office visited">
+              <Field label="Destination" hint="Filled in from the route — change it to name the actual place">
                 <input
                   className="field"
                   value={draft.destination}

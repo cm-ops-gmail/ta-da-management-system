@@ -444,6 +444,13 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
     if (cityZone(policy, draft.city) === "Outside") errors.push(`${draft.city} is not an inside-city location.`);
     if (!draft.startTime || !draft.endTime) errors.push("Start and end time are required to calculate Per-Diem.");
     if (!draft.workedAt) errors.push("Select where you worked.");
+    // Hours worked at the office are checked against the attendance record, so
+    // the punches are what make the claim provable.
+    if (draft.workedAt === "Office") {
+      warnings.push(
+        "Worked at the office — you must punch the card both in and out. Without both punches this claim will be rejected.",
+      );
+    }
     if (!draft.transportMode) errors.push("Select a mode of transport.");
     if (draft.transportMode === "PersonalVehicle") {
       if (!draft.vehicleType) errors.push("Select the personal vehicle type.");
