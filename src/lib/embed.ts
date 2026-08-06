@@ -5,18 +5,18 @@
  * "Sign out" here would leave the surrounding page signed in and this panel
  * signed out.
  *
- * Two signals, either of which is enough:
+ * The signal is `?source=hq`. Being framed is not enough by itself: HQ serves
+ * the app at both /ta-da and /ta-da?source=hq, both inside a frame, and only
+ * the second should hide the button — so the frame cannot be what decides.
  *
- *  - `?source=hq` on this page's own URL. To reach here it has to be on the
- *    **iframe's src**; putting it only on the surrounding page's address does
- *    nothing, since a cross-origin frame cannot read its parent's location and
- *    the referrer arrives trimmed to a bare origin. A full referrer is honoured
- *    when one is sent, but nothing is built on that.
+ * A cross-origin frame cannot read its parent's location, so the marker has to
+ * be handed in. Either works, and both are one change on the embedding side:
  *
- *  - Being inside a frame at all. HQ is the only site that embeds this app, so
- *    this is a dependable stand-in, and unlike the marker it needs nothing from
- *    HQ's embed code. Comparing the two window references is safe across
- *    origins — it is reading a *property* off window.top that would throw.
+ *     <iframe src="https://…/?source=hq">           marker on the frame's URL
+ *     <iframe referrerpolicy="unsafe-url" src="…">  full parent URL as referrer
+ *
+ * The second is what the referrer check below is for. Without it browsers trim
+ * the referrer to a bare origin and the parent's query string never arrives.
  */
 
 const KEY = "ta-perdiem-source";
@@ -87,8 +87,8 @@ export const IS_FRAMED = detectFramed();
  * True when something other than this app owns the sign-in session, so the app
  * must not offer to end it.
  *
- * Either signal is enough. The marker is the explicit one but cannot be relied
- * on, so being framed stands in for it: the only site that embeds this app is
- * the HQ portal, and that check needs nothing from HQ's embed code.
+ * The marker is the only signal. Being framed is deliberately NOT enough:
+ * /ta-da and /ta-da?source=hq are both framed, and they have to behave
+ * differently, so the frame itself cannot be what decides.
  */
-export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq" || IS_FRAMED;
+export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq";
