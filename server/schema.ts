@@ -98,6 +98,7 @@ export const TABS: TabSpec[] = [
       "bkash_number",
       "destination_type",
       "route",
+      "exception_claimed", "exception_reason",
     ],
   },
 

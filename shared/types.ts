@@ -114,6 +114,9 @@ export interface RequestDraft {
   destinationType: string;
   /** Outside-city route taken — a Route value. Empty on inside-city trips. */
   route: string;
+  /** Transport taken outside band policy, with the reason it had to be. */
+  exceptionClaimed: boolean;
+  exceptionReason: string;
   destination: string;
   startTime: string;
   endTime: string;
@@ -239,6 +242,8 @@ export interface RequestRecord {
   purpose: string;
   destinationType: string;
   route: string;
+  exceptionClaimed: boolean;
+  exceptionReason: string;
   destination: string;
   startTime: string;
   endTime: string;

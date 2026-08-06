@@ -733,6 +733,8 @@ function toDraft(r: Detail["request"]): RequestDraft {
     purpose: r.purpose,
     destinationType: r.destinationType,
     route: r.route,
+    exceptionClaimed: r.exceptionClaimed,
+    exceptionReason: r.exceptionReason,
     destination: r.destination,
     startTime: r.startTime,
     endTime: r.endTime,

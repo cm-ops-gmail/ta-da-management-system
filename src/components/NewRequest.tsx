@@ -743,6 +743,37 @@ function StepTransport({
           }
         />
       )}
+
+      <Card title="Any exception?">
+        <div className="space-y-3">
+          <Toggle
+            checked={draft.exceptionClaimed}
+            onChange={(exceptionClaimed) =>
+              set({ exceptionClaimed, exceptionReason: exceptionClaimed ? draft.exceptionReason : "" })
+            }
+            label="I had to travel outside my band's transport policy"
+            hint="Only when the trip genuinely left no choice — a late-night journey where a car was the safe option, for example. Ticking this opens every mode your band would otherwise not allow."
+          />
+          {draft.exceptionClaimed && (
+            <>
+              <Field label="Why was this necessary?" required>
+                <textarea
+                  className="field min-h-20"
+                  value={draft.exceptionReason}
+                  onChange={(e) => set({ exceptionReason: e.target.value })}
+                  placeholder="Returned from the Uttara shoot at 1:30am — no CNG or rickshaw available at that hour, so a car was the only safe way home."
+                />
+              </Field>
+              <Notice
+                tone="warn"
+                items={[
+                  "An approver reads this and decides. Without a reason that stands up, the claim comes back — so say what happened, when, and why the usual option was not available.",
+                ]}
+              />
+            </>
+          )}
+        </div>
+      </Card>
     </>
   );
 }
@@ -905,47 +936,6 @@ function StepAllowances({
           </Card>
         )}
 
-        <Card title="Dual workstation" subtitle="Tick this when the day was split across a scheduled second workstation.">
-          <div className="space-y-3">
-            <Toggle
-              checked={draft.dualWorkstation}
-              onChange={(dualWorkstation) => set({ dualWorkstation, dualWorkstationType: dualWorkstation ? draft.dualWorkstationType : "" })}
-              label="This was a dual-workstation day"
-              hint="TA and Per-Diem stay claimable; a company meal is assumed, so duplicate meal claims are blocked."
-            />
-            {draft.dualWorkstation && (
-              <Field label="Reason" required>
-                <select
-                  className="field"
-                  value={draft.dualWorkstationType}
-                  onChange={(e) => set({ dualWorkstationType: e.target.value })}
-                >
-                  <option value="">Select</option>
-                  {policy.dualWorkstationOptions.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
-              </Field>
-            )}
-          </div>
-        </Card>
-
-        <Card title="Anything else?">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={`Other amount (${currency})`}>
-              <input
-                type="number"
-                min={0}
-                className="field"
-                value={draft.otherAmount || ""}
-                onChange={(e) => set({ otherAmount: Number(e.target.value) })}
-              />
-            </Field>
-            <Field label="What is it for?">
-              <input className="field" value={draft.otherNote} onChange={(e) => set({ otherNote: e.target.value })} />
-            </Field>
-          </div>
-        </Card>
       </>
     );
   }

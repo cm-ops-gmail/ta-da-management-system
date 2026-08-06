@@ -135,6 +135,8 @@ export interface EligibilityContext {
   teamSize: number;
   /** Genders of the other travellers, so the party can be assessed as a whole. */
   teamGenders?: string[];
+  /** Transport taken outside band policy because the trip demanded it. */
+  exceptionClaimed?: boolean;
   carSpecialApproval: boolean;
 }
 
@@ -180,7 +182,9 @@ export function eligibleModes(policy: Policy, ctx: EligibilityContext): ModeOpti
   };
 
   if (ctx.scope === "inside") {
-    const female = femaleTravelling(ctx.gender, ctx.travelType, ctx.teamGenders);
+    // An exception opens the same doors a female traveller has: the band list
+    // stops narrowing the options, and the reason goes to the approver.
+    const female = femaleTravelling(ctx.gender, ctx.travelType, ctx.teamGenders) || !!ctx.exceptionClaimed;
     const allowed = (isFemaleGender(ctx.gender) ? band?.modesFemale : band?.modesMale) ?? [];
     const teamMin = cfgNum(policy, "TEAM_CAR_MIN_MEMBERS", 3);
 
@@ -228,7 +232,9 @@ export function eligibleModes(policy: Policy, ctx: EligibilityContext): ModeOpti
       continue;
     }
     if (s.mode === "RentACar") {
-      if (band?.carPoolEligible || femaleTravelling(ctx.gender, ctx.travelType, ctx.teamGenders)) push("RentACar", true);
+      if (band?.carPoolEligible || femaleTravelling(ctx.gender, ctx.travelType, ctx.teamGenders) || ctx.exceptionClaimed) {
+        push("RentACar", true);
+      }
       else push("RentACar", false, `Rent-a-car pooling is not available for Band ${ctx.band}.`);
       continue;
     }
@@ -514,6 +520,16 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
     notes.push(`${links.length} document link(s) attached — approvers open them directly, so keep the Drive sharing open to them.`);
   }
 
+  if (draft.exceptionClaimed) {
+    if (!draft.exceptionReason.trim()) {
+      errors.push("Explain why this exception was necessary.");
+    } else {
+      warnings.push(
+        `Policy exception claimed — an approver must accept it before this is paid. Reason: ${draft.exceptionReason.trim()}`,
+      );
+    }
+  }
+
   // The chosen mode must still be legal for this employee.
   if (draft.transportMode) {
     const opts = eligibleModes(policy, {
@@ -523,6 +539,7 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
       travelType: draft.travelType,
       teamSize,
       teamGenders: draft.teamMembers.map((m) => m.gender),
+      exceptionClaimed: draft.exceptionClaimed,
       carSpecialApproval: draft.carSpecialApproval,
     });
     const chosen = opts.find((o) => o.mode === draft.transportMode);
@@ -603,6 +620,8 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     purpose: "",
     destinationType: "",
     route: "",
+    exceptionClaimed: false,
+    exceptionReason: "",
     destination: "",
     startTime: "",
     endTime: "",
