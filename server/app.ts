@@ -485,7 +485,7 @@ function buildRecord(
     designation: base.designation ?? session.designation,
     scope: draft.scope,
     city: draft.city,
-    claimType: draft.claimType,
+    claimType: computation.claimType,
     travelType: draft.travelType,
     teamSize: draft.travelType === "team" ? draft.teamMembers.length + 1 : 1,
     teamMembers: draft.travelType === "team" ? draft.teamMembers : [],

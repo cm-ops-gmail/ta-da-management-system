@@ -9,7 +9,7 @@ import {
 import type { Leg, Policy, RequestDraft, SessionUser, TeamMember } from "../../shared/types.js";
 import { Card, ChoiceGrid, Field, Money, MultiSelect, Notice, SearchInput, Toggle } from "./ui.js";
 
-const STEPS = ["Travel Type", "Trip Details", "Transportation", "Allowances", "Documents"];
+const STEPS = ["Travel Type", "Transportation", "Allowances", "Documents"];
 
 export default function NewRequest({
   user, policy, editing, onDone, onCancel,
@@ -67,7 +67,7 @@ export default function NewRequest({
       onDone(res.request.requestId);
     } catch (err) {
       setError((err as Error).message);
-      setStep(4);
+      setStep(STEPS.length - 1);
     } finally {
       setBusy(false);
     }
@@ -102,14 +102,13 @@ export default function NewRequest({
               policy={policy}
             />
           )}
-          {step === 1 && <StepDetails draft={draft} set={set} policy={policy} />}
-          {step === 2 && (
+          {step === 1 && (
             <StepTransport draft={draft} set={set} policy={policy} modes={modes} user={user} currency={currency} />
           )}
-          {step === 3 && (
+          {step === 2 && (
             <StepAllowances draft={draft} set={set} policy={policy} user={user} computation={computation} currency={currency} />
           )}
-          {step === 4 && (
+          {step === 3 && (
             <StepDocuments
               draft={draft}
               set={set}
@@ -197,6 +196,7 @@ function StepTravelType({
   const destinationOptions = policy.destinationTypes.filter(
     (d) => !d.cities.length || d.cities.includes(draft.city),
   );
+  const outside = draft.scope === "outside";
   const route = policy.routes.find((r) => r.value === draft.route);
   const destination = destinationOptions.find((d) => d.value === draft.destinationType);
   const destinationNeeds = destination?.needs;
@@ -218,7 +218,6 @@ function StepTravelType({
               destination: "",
               purpose: "",
               transportMode: "",
-              claimType: scope === "outside" ? "both" : draft.claimType,
             })
           }
           options={[
@@ -358,23 +357,73 @@ function StepTravelType({
               )}
             </>
           )}
+
+          <Field label={outside ? "Departure date" : "Travel date"} required>
+            <input
+              type="date"
+              className="field"
+              value={draft.fromDate}
+              onChange={(e) => set({ fromDate: e.target.value, toDate: outside ? draft.toDate : e.target.value })}
+            />
+          </Field>
+          {outside && (
+            <Field label="Return date" required>
+              <input type="date" className="field" value={draft.toDate} onChange={(e) => set({ toDate: e.target.value })} />
+            </Field>
+          )}
+
+          {/* Inside-city says where it went above, beside the city. */}
+          {outside && (
+            <>
+              <Field label="Destination" hint="Specific place / office visited">
+                <input
+                  className="field"
+                  value={draft.destination}
+                  onChange={(e) => set({ destination: e.target.value })}
+                  placeholder="Sylhet regional office"
+                />
+              </Field>
+              <Field label="Purpose" required>
+                <input
+                  className="field"
+                  value={draft.purpose}
+                  onChange={(e) => set({ purpose: e.target.value })}
+                  placeholder="Partner meeting, campus activation…"
+                />
+              </Field>
+            </>
+          )}
         </div>
       </Card>
 
-      {draft.scope === "inside" && (
-        <Card title="What are you claiming?">
-          <ChoiceGrid
-            columns={3}
-            value={draft.claimType}
-            onChange={(claimType) => set({ claimType })}
-            options={[
-              { value: "ta", label: "TA Only", description: "Transport reimbursement only" },
-              { value: "perdiem", label: "Per-Diem Only", description: "Meal / per-diem entitlement only" },
-              { value: "both", label: "TA + Per-Diem", description: "Both, in a single claim" },
-            ]}
-          />
-        </Card>
-      )}
+      {/* What is claimed is worked out from the hours and the transport, so
+          there is nothing to choose — only to report. */}
+      <Card
+        title="Where and when did you work?"
+        subtitle={
+          outside
+            ? "Recorded on the claim. Outside-city Per-Diem follows the trip length and your band."
+            : "Working hours are calculated automatically — TA, Per-Diem or both follow from them."
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Worked at" required={!outside}>
+            <select className="field" value={draft.workedAt} onChange={(e) => set({ workedAt: e.target.value })}>
+              <option value="">Select</option>
+              {policy.workedAtOptions.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </Field>
+          <div />
+          <Field label="Start time" required={!outside}>
+            <input type="time" className="field" value={draft.startTime} onChange={(e) => set({ startTime: e.target.value })} />
+          </Field>
+          <Field label="End time" required={!outside}>
+            <input type="time" className="field" value={draft.endTime} onChange={(e) => set({ endTime: e.target.value })} />
+          </Field>
+        </div>
+      </Card>
 
       <Card title="Who is travelling?">
         <ChoiceGrid
@@ -568,79 +617,6 @@ function TeamPicker({
   );
 }
 
-// ── Step 2 ──────────────────────────────────────────────────────────────────
-
-function StepDetails({
-  draft, set, policy,
-}: { draft: RequestDraft; set: (p: Partial<RequestDraft>) => void; policy: Policy }) {
-  const outside = draft.scope === "outside";
-  return (
-    <>
-      <Card title="Trip details">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={outside ? "Departure date" : "Travel date"} required>
-            <input
-              type="date"
-              className="field"
-              value={draft.fromDate}
-              onChange={(e) => set({ fromDate: e.target.value, toDate: outside ? draft.toDate : e.target.value })}
-            />
-          </Field>
-          {outside && (
-            <Field label="Return date" required>
-              <input type="date" className="field" value={draft.toDate} onChange={(e) => set({ toDate: e.target.value })} />
-            </Field>
-          )}
-          {/* Inside-city asks for both on the Travel Type step, beside the
-              city, so they are not asked for twice. */}
-          {outside && (
-            <>
-              <Field label="Destination" hint="Specific place / office visited">
-                <input
-                  className="field"
-                  value={draft.destination}
-                  onChange={(e) => set({ destination: e.target.value })}
-                  placeholder="Sylhet regional office"
-                />
-              </Field>
-              <Field label="Purpose" required>
-                <input
-                  className="field"
-                  value={draft.purpose}
-                  onChange={(e) => set({ purpose: e.target.value })}
-                  placeholder="Partner meeting, campus activation…"
-                />
-              </Field>
-            </>
-          )}
-        </div>
-      </Card>
-
-      {!outside && (draft.claimType === "perdiem" || draft.claimType === "both") && (
-        <Card title="Where and when did you work?" subtitle="Working hours are calculated automatically — Per-Diem eligibility follows from them.">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Worked at" required>
-              <select className="field" value={draft.workedAt} onChange={(e) => set({ workedAt: e.target.value })}>
-                <option value="">Select</option>
-                {policy.workedAtOptions.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            </Field>
-            <div />
-            <Field label="Start time" required>
-              <input type="time" className="field" value={draft.startTime} onChange={(e) => set({ startTime: e.target.value })} />
-            </Field>
-            <Field label="End time" required>
-              <input type="time" className="field" value={draft.endTime} onChange={(e) => set({ endTime: e.target.value })} />
-            </Field>
-          </div>
-        </Card>
-      )}
-    </>
-  );
-}
-
 // ── Step 3 ──────────────────────────────────────────────────────────────────
 
 function StepTransport({
@@ -654,19 +630,8 @@ function StepTransport({
   currency: string;
 }) {
   const inside = draft.scope === "inside";
-  const claimsTA = draft.claimType === "ta" || draft.claimType === "both";
   const juniorMale = inside && !String(user.gender).toLowerCase().startsWith("f") &&
     modes.some((m) => m.mode === "Car" && !m.enabled && m.reason.includes("pre-approval"));
-
-  if (inside && !claimsTA) {
-    return (
-      <Card title="Transportation">
-        <p className="text-sm text-slate-500">
-          This is a Per-Diem-only claim, so no transport details are needed. Continue to the next step.
-        </p>
-      </Card>
-    );
-  }
 
   return (
     <>
@@ -853,10 +818,9 @@ function StepAllowances({
   const band = policy.bands.find((b) => b.band === user.band);
 
   if (inside) {
-    const claimsPerDiem = draft.claimType === "perdiem" || draft.claimType === "both";
     return (
       <>
-        {claimsPerDiem && (
+        {(
           <Card
             title="Per-Diem & meals"
             subtitle={`You worked ${computation.workingHours} hour(s). Eligibility is decided by the system, not by you.`}

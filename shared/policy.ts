@@ -218,12 +218,6 @@ export function eligibleModes(policy: Policy, ctx: EligibilityContext): ModeOpti
 
 // ── the calculation ─────────────────────────────────────────────────────────
 
-function claimHasTA(t: ClaimType): boolean {
-  return t === "ta" || t === "both";
-}
-function claimHasPerDiem(t: ClaimType): boolean {
-  return t === "perdiem" || t === "both";
-}
 
 /**
  * Turns a draft plus the employee's profile into every amount, note, warning
@@ -250,7 +244,7 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
   const legTotal = draft.legs.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
 
   if (draft.scope === "inside") {
-    if (claimHasTA(draft.claimType)) {
+    {
       if (draft.transportMode === "CompanyVehicle") {
         taAmount = 0;
         notes.push("Company vehicle used — no transport reimbursement is payable.");
@@ -296,7 +290,7 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
         `Outside-city Per-Diem for Band ${user.band}: ${span.weekday} weekday × ${band?.outsideTAWeekday ?? 0} + ${span.weekend} weekend × ${band?.outsideTAWeekend ?? 0} = ${perDiemAmount}. This already covers local transport and 3 meals.`,
       );
     }
-  } else if (claimHasPerDiem(draft.claimType)) {
+  } else {
     const minHours = cfgNum(policy, "PER_DIEM_MIN_HOURS", 5);
     if (hours >= minHours) {
       perDiemEligible = true;
@@ -399,6 +393,19 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
 
   const finalPayable = money(totalClaim - advanceRequested);
 
+  // The claim type is a result, not a question: whatever the policy actually
+  // paid out is what this claim is. Nobody is asked to pick it any more.
+  const paidTA = taAmount > 0;
+  const paidPerDiem = perDiemAmount > 0 || lunchAllowance > 0;
+  const claimType: ClaimType = paidTA && paidPerDiem ? "both" : paidPerDiem ? "perdiem" : "ta";
+  if (draft.scope === "inside" && (paidTA || paidPerDiem)) {
+    notes.push(
+      `Claim resolved automatically as ${
+        { ta: "TA only", perdiem: "Per-Diem only", both: "TA + Per-Diem" }[claimType]
+      } — from the hours and transport entered, not from a choice.`,
+    );
+  }
+
   // ── Cross-field validation ────────────────────────────────────────────────
   if (!draft.fromDate) errors.push("Travel date is required.");
   if (!draft.purpose) errors.push("Purpose is required.");
@@ -413,11 +420,9 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
       errors.push(`${chosen.label} name is required.`);
     }
     if (cityZone(policy, draft.city) === "Outside") errors.push(`${draft.city} is not an inside-city location.`);
-    if (claimHasPerDiem(draft.claimType)) {
-      if (!draft.startTime || !draft.endTime) errors.push("Start and end time are required to calculate Per-Diem.");
-      if (!draft.workedAt) errors.push("Select where you worked.");
-    }
-    if (claimHasTA(draft.claimType) && !draft.transportMode) errors.push("Select a mode of transport.");
+    if (!draft.startTime || !draft.endTime) errors.push("Start and end time are required to calculate Per-Diem.");
+    if (!draft.workedAt) errors.push("Select where you worked.");
+    if (!draft.transportMode) errors.push("Select a mode of transport.");
     if (draft.transportMode === "PersonalVehicle") {
       if (!draft.vehicleType) errors.push("Select the personal vehicle type.");
       if (!(Number(draft.totalKM) > 0)) errors.push("Total KM is required for a personal vehicle claim.");
@@ -500,6 +505,7 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
     tripDays,
     weekdayDays: span.weekday,
     weekendDays: span.weekend,
+    claimType,
     taAmount: money(taAmount),
     perDiemEligible,
     perDiemDays,

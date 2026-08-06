@@ -186,6 +186,8 @@ export interface Policy {
 }
 
 export interface Computation {
+  /** Derived from what the policy paid, never chosen by the claimant. */
+  claimType: ClaimType;
   workingHours: number;
   tripDays: number;
   weekdayDays: number;
