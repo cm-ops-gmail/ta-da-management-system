@@ -108,6 +108,8 @@ export interface RequestDraft {
   fromDate: string;
   toDate: string;
   purpose: string;
+  /** Kind of place visited on an inside-city trip — a DestinationType value. */
+  destinationType: string;
   destination: string;
   startTime: string;
   endTime: string;
@@ -167,6 +169,9 @@ export interface Policy {
   cities: { city: string; zone: "Inside" | "Outside" }[];
   modes: TransportModeSpec[];
   workedAtOptions: string[];
+  /** Inside-city destinations. `needs` decides what the form asks for next. */
+  destinationTypes: { value: string; label: string; needs: "name" | "office" }[];
+  otherOffices: string[];
   dualWorkstationOptions: string[];
   paymentMethods: string[];
   documentTypes: string[];
@@ -221,6 +226,7 @@ export interface RequestRecord {
   toDate: string;
   tripDays: number;
   purpose: string;
+  destinationType: string;
   destination: string;
   startTime: string;
   endTime: string;

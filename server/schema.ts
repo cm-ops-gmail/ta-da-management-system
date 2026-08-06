@@ -96,6 +96,7 @@ export const TABS: TabSpec[] = [
       // New columns go at the END. Rows are positional, so inserting one in the
       // middle shifts every value after it into the wrong column.
       "bkash_number",
+      "destination_type",
     ],
   },
 
@@ -198,6 +199,21 @@ export const TABS: TabSpec[] = [
       ["TransportMode", "Launch", "Launch", "Outside", "Yes", "Yes"],
       ["TransportMode", "Flight", "Flight", "Outside", "Yes", "Yes"],
       ["TransportMode", "RentACar", "Rent a Car", "Outside", "Yes", "Yes"],
+
+      // Where an inside-city trip went. `Extra1` says what the form asks for
+      // next: "Name" opens a free-text box for the place, "Office" opens the
+      // OtherOffice list below.
+      ["DestinationType", "Partner Office", "Partner Office", "Name", "", "Yes"],
+      ["DestinationType", "Stakeholder", "Stakeholder", "Name", "", "Yes"],
+      ["DestinationType", "University", "University", "Name", "", "Yes"],
+      ["DestinationType", "Vendor", "Vendor", "Name", "", "Yes"],
+      ["DestinationType", "Other Office", "Other Office", "Office", "", "Yes"],
+
+      ["OtherOffice", "Mirpur LC", "Mirpur LC", "", "", "Yes"],
+      ["OtherOffice", "Uttara LC", "Uttara LC", "", "", "Yes"],
+      ["OtherOffice", "Panthapath LC", "Panthapath LC", "", "", "Yes"],
+      ["OtherOffice", "Moghbazar LC", "Moghbazar LC", "", "", "Yes"],
+      ["OtherOffice", "Mirpur Telesales Office", "Mirpur Telesales Office", "", "", "Yes"],
 
       ["WorkedAt", "Office", "Office", "", "", "Yes"],
       ["WorkedAt", "Partner Office", "Partner Office", "", "", "Yes"],

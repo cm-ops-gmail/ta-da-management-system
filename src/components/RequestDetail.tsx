@@ -151,7 +151,12 @@ export default function RequestDetail({
             <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
               <Row label="Type" value={r.scope === "inside" ? "Inside city" : "Outside city"} />
               <Row label="City" value={r.city} />
-              <Row label="Destination" value={r.destination || "—"} />
+              {/* Inside-city trips carry a kind as well as a name; show both
+                  when both are there, and never an empty dash for the kind. */}
+              <Row
+                label="Destination"
+                value={[r.destinationType, r.destination].filter(Boolean).join(" — ") || "—"}
+              />
               <Row label="Purpose" value={r.purpose} />
               <Row label="Dates" value={r.scope === "inside" ? r.fromDate : `${r.fromDate} → ${r.toDate} (${r.tripDays} days)`} />
               <Row label="Claim type" value={{ ta: "TA only", perdiem: "Per-Diem only", both: "TA + Per-Diem" }[r.claimType]} />
@@ -722,6 +727,7 @@ function toDraft(r: Detail["request"]): RequestDraft {
     fromDate: r.fromDate,
     toDate: r.toDate,
     purpose: r.purpose,
+    destinationType: r.destinationType,
     destination: r.destination,
     startTime: r.startTime,
     endTime: r.endTime,

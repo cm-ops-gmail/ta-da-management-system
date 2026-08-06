@@ -101,6 +101,7 @@ export default function NewRequest({
               insideCities={insideCities.map((c) => c.city)}
               outsideCities={outsideCities.map((c) => c.city)}
               user={user}
+              policy={policy}
             />
           )}
           {step === 1 && <StepDetails draft={draft} set={set} policy={policy} />}
@@ -186,14 +187,19 @@ function Stepper({ step, onStep }: { step: number; onStep: (n: number) => void }
 // ── Step 1 ──────────────────────────────────────────────────────────────────
 
 function StepTravelType({
-  draft, set, insideCities, outsideCities, user,
+  draft, set, insideCities, outsideCities, user, policy,
 }: {
   draft: RequestDraft;
   set: (p: Partial<RequestDraft>) => void;
   insideCities: string[];
   outsideCities: string[];
   user: SessionUser;
+  policy: Policy;
 }) {
+  const destination = policy.destinationTypes.find((d) => d.value === draft.destinationType);
+  const destinationNeeds = destination?.needs;
+  const destinationLabel = destination?.label || "";
+
   return (
     <>
       <Card title="What type of travel are you making?">
@@ -234,6 +240,59 @@ function StepTravelType({
                 <option value="company">Company Arrangement</option>
               </select>
             </Field>
+          )}
+
+          {/* Inside-city trips name where they went right here, next to the
+              city. Outside-city keeps the free-text pair on Trip details. */}
+          {draft.scope === "inside" && draft.city && (
+            <>
+              <Field label="Destination" required>
+                <select
+                  className="field"
+                  value={draft.destinationType}
+                  // Both follow-ups are cleared on a change of mind, so a name
+                  // typed for a University cannot survive into an Other Office.
+                  onChange={(e) => set({ destinationType: e.target.value, destination: "", purpose: "" })}
+                >
+                  <option value="">Select a destination</option>
+                  {policy.destinationTypes.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              {destinationNeeds === "name" && (
+                <>
+                  <Field label={`${destinationLabel} name`} required>
+                    <input
+                      className="field"
+                      value={draft.destination}
+                      onChange={(e) => set({ destination: e.target.value })}
+                      placeholder={`Which ${destinationLabel.toLowerCase()}?`}
+                    />
+                  </Field>
+                  <Field label="Purpose" required>
+                    <input
+                      className="field"
+                      value={draft.purpose}
+                      onChange={(e) => set({ purpose: e.target.value })}
+                      placeholder="Partner meeting, campus activation…"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {destinationNeeds === "office" && (
+                <Field label="Purpose" required>
+                  <select className="field" value={draft.purpose} onChange={(e) => set({ purpose: e.target.value })}>
+                    <option value="">Select an office</option>
+                    {policy.otherOffices.map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+            </>
           )}
         </div>
       </Card>
@@ -468,22 +527,28 @@ function StepDetails({
               <input type="date" className="field" value={draft.toDate} onChange={(e) => set({ toDate: e.target.value })} />
             </Field>
           )}
-          <Field label="Destination" required={!outside} hint={outside ? "Specific place / office visited" : undefined}>
-            <input
-              className="field"
-              value={draft.destination}
-              onChange={(e) => set({ destination: e.target.value })}
-              placeholder={outside ? "Sylhet regional office" : "Banani partner office"}
-            />
-          </Field>
-          <Field label="Purpose" required>
-            <input
-              className="field"
-              value={draft.purpose}
-              onChange={(e) => set({ purpose: e.target.value })}
-              placeholder="Partner meeting, campus activation…"
-            />
-          </Field>
+          {/* Inside-city asks for both on the Travel Type step, beside the
+              city, so they are not asked for twice. */}
+          {outside && (
+            <>
+              <Field label="Destination" hint="Specific place / office visited">
+                <input
+                  className="field"
+                  value={draft.destination}
+                  onChange={(e) => set({ destination: e.target.value })}
+                  placeholder="Sylhet regional office"
+                />
+              </Field>
+              <Field label="Purpose" required>
+                <input
+                  className="field"
+                  value={draft.purpose}
+                  onChange={(e) => set({ purpose: e.target.value })}
+                  placeholder="Partner meeting, campus activation…"
+                />
+              </Field>
+            </>
+          )}
         </div>
       </Card>
 

@@ -277,6 +277,33 @@ async function main() {
     console.log(`Seeded: ${toSeed.map((t) => `${t.title} (${t.seed!.length})`).join(", ")}`);
   }
 
+  // ── 5b. Top up Lists with dropdown values added since the tab was seeded ──
+  // Seeding only fills an empty tab, so a list added in a later release would
+  // otherwise never reach a live sheet and its dropdown would come up blank.
+  // Only entries missing outright are appended, at the end: existing rows keep
+  // their order and any edits, and a value switched off with active=No is left
+  // alone rather than resurrected.
+  const lists = TABS.find((t) => t.title === "Lists");
+  if (lists?.seed?.length && !toSeed.includes(lists)) {
+    const range = `${quote(lists.title)}!A2:${colLetter(lists.headers.length - 1)}`;
+    const existing = ((await sheets.spreadsheets.values.get({ spreadsheetId: id, range })).data.values ||
+      []) as unknown[][];
+    const key = (r: unknown[]) => `${String(r[0] ?? "").trim()} ${String(r[1] ?? "").trim()}`;
+    const have = new Set(existing.map(key));
+    const missing = lists.seed.filter((r) => !have.has(key(r)));
+    if (missing.length) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: id,
+        range,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: missing },
+      });
+      const names = [...new Set(missing.map((r) => String(r[0])))].join(", ");
+      console.log(`  Lists: added ${missing.length} missing value(s) — ${names}`);
+    }
+  }
+
   // ── 6. Formatting ─────────────────────────────────────────────────────────
   const fmt: object[] = [];
   for (const t of TABS) {

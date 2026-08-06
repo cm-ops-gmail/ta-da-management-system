@@ -397,7 +397,13 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
   if (!draft.fromDate) errors.push("Travel date is required.");
   if (!draft.purpose) errors.push("Purpose is required.");
   if (draft.scope === "inside") {
-    if (!draft.destination) errors.push("Destination is required.");
+    // Inside-city trips pick the destination from a list; what that choice
+    // asks for next decides what still has to be filled in.
+    const chosen = policy.destinationTypes.find((d) => d.value === draft.destinationType);
+    if (!chosen) errors.push("Select a destination.");
+    else if (chosen.needs === "name" && !draft.destination) {
+      errors.push(`${chosen.label} name is required.`);
+    }
     if (cityZone(policy, draft.city) === "Outside") errors.push(`${draft.city} is not an inside-city location.`);
     if (claimHasPerDiem(draft.claimType)) {
       if (!draft.startTime || !draft.endTime) errors.push("Start and end time are required to calculate Per-Diem.");
@@ -514,6 +520,7 @@ export function emptyDraft(scope: Scope = "inside"): RequestDraft & { carSpecial
     fromDate: today,
     toDate: today,
     purpose: "",
+    destinationType: "",
     destination: "",
     startTime: "",
     endTime: "",
