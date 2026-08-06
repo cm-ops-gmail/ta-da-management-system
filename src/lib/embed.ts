@@ -5,18 +5,16 @@
  * "Sign out" here would leave the surrounding page signed in and this panel
  * signed out.
  *
- * Two signals, either of which is enough.
+ * The signal is `?source=hq` on this page's own URL. HQ's outer page carrying
+ * that query param is not enough — a cross-origin frame cannot read its
+ * parent's location — so HQ appends the marker to the iframe's src alongside
+ * the handoff token:
  *
- * `?source=hq` is the explicit one, but it cannot be relied on by itself: HQ's
- * outer page carrying that query param does not mean its <iframe> tag's src
- * carries it too, and a cross-origin frame cannot read its parent's location.
- * Today HQ's src passes only `tenms_token`, so the marker never arrives.
+ *     src="https://…/?tenms_token=<token>&source=hq"
  *
- * Being inside a frame at all is therefore the signal that actually fires. It
- * is self-contained and needs nothing from HQ's embed code — safe here because
- * this internal tool is only ever framed by HQ. Comparing the two window
- * references is allowed across origins; it is reading a *property* off
- * window.top that would throw.
+ * The referrer is also checked, which covers an embedder that sends a full one
+ * instead. Browsers trim it to a bare origin by default, so nothing relies on
+ * it.
  */
 
 const KEY = "ta-perdiem-source";
@@ -87,7 +85,8 @@ export const IS_FRAMED = detectFramed();
  * True when something other than this app owns the sign-in session, so the app
  * must not offer to end it.
  *
- * Note that every framed page is covered, `?source=hq` or not, since being
- * framed is on its own enough.
+ * Being framed is deliberately not enough on its own: HQ serves this app at
+ * both /ta-da and /ta-da?source=hq, both inside a frame, and only the second
+ * hides the button — so the frame cannot be what decides.
  */
-export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq" || IS_FRAMED;
+export const HOST_OWNS_SESSION = EMBED_SOURCE === "hq";
