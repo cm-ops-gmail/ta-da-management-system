@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Banknote, CheckCheck, FileText, HandCoins, Inbox, LayoutDashboard, ListChecks,
+  Banknote, BarChart3, CheckCheck, FileText, HandCoins, Inbox, LayoutDashboard, ListChecks,
   LogOut, Menu, Plus, Settings, ShieldCheck, User, Wallet, X,
 } from "lucide-react";
 import { useTenMSAuth } from "@tenminuteschool/auth-admin-react";
@@ -15,6 +15,7 @@ import RequestList from "./components/RequestList.js";
 import RequestDetail from "./components/RequestDetail.js";
 import Advances from "./components/Advances.js";
 import AdminConfig from "./components/AdminConfig.js";
+import Reports from "./components/Reports.js";
 import { Spinner } from "./components/ui.js";
 
 /**
@@ -159,6 +160,7 @@ export default function App() {
     { key: "desk-advances", label: "Advance Approvals", short: "Advance", icon: HandCoins, show: reviewsAdvances },
     { key: "desk-payments", label: "Payments", short: "Pay", icon: Banknote, show: isFinance || isAdmin },
     { key: "desk-all", label: "All Claims", short: "All", icon: ListChecks, show: true },
+    { key: "desk-reports", label: "Reports", short: "Report", icon: BarChart3, show: isAdmin || isFinance },
     { key: "admin", label: "Configuration", short: "Config", icon: Settings, show: isAdmin },
   ] as (NavItem & { show: boolean })[]).filter((n) => n.show).map(({ show: _show, ...n }) => n);
 
@@ -441,6 +443,10 @@ export default function App() {
               subtitle="Claims waiting on Finance — to approve, to pay, and already paid."
               onOpen={(requestId) => setView({ name: "detail", requestId })}
             />
+          )}
+
+          {view.name === "desk-reports" && (
+            <Reports policy={policy} user={user} onOpen={(requestId) => setView({ name: "detail", requestId })} />
           )}
 
           {view.name === "desk-all" && (

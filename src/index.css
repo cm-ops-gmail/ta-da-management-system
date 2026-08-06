@@ -104,3 +104,33 @@ input[type="time"] {
 .btn-success {
   @apply bg-emerald-600 text-white hover:bg-emerald-700;
 }
+
+/*
+ * Saving a report as PDF is the browser's own print-to-PDF, so the page has to
+ * be worth printing: the app frame goes, the content runs full width, and a
+ * card is not split across a page break.
+ */
+@media print {
+  nav, aside, header, footer {
+    display: none !important;
+  }
+  main, body, #root {
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .card {
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  table {
+    font-size: 11px;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+}
