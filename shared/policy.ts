@@ -11,7 +11,7 @@
  */
 
 import type {
-  BandPolicy, ClaimType, Computation, Policy, RequestDraft, Scope, SessionUser,
+  BandPolicy, ClaimType, Computation, Leg, Policy, RequestDraft, Scope, SessionUser,
 } from "./types.js";
 
 // ── small helpers ───────────────────────────────────────────────────────────
@@ -556,6 +556,37 @@ export function computeRequest(policy: Policy, draft: RequestDraft, user: Sessio
     errors,
     warnings,
   };
+}
+
+/**
+ * The trips a claim implies, worked out from what has already been entered.
+ *
+ * Nobody should have to retype a journey the form already knows about: the
+ * dates come from the trip, and the ends from the city, route and destination.
+ * Only the fare is genuinely new information, so that is all this leaves to
+ * fill in. Extra hops can still be added by hand on top of these.
+ */
+export function impliedLegs(policy: Policy, draft: RequestDraft): Leg[] {
+  const mode = draft.transportMode;
+  // These two are not reimbursed per journey — one is free, the other by the
+  // kilometre — so neither has fares to enter.
+  if (!mode || mode === "CompanyVehicle" || mode === "PersonalVehicle") return [];
+
+  const leg = (travelDate: string, travelFrom: string, travelTo: string): Leg =>
+    ({ travelDate, mode, travelFrom, travelTo, amount: 0, note: "" });
+
+  if (draft.scope === "inside") {
+    const to = draft.destination || draft.destinationType || "";
+    return [leg(draft.fromDate, draft.city, to)];
+  }
+
+  const route = policy.routes.find((r) => r.value === draft.route);
+  const from = route?.from || "";
+  const to = draft.city || route?.to || "";
+  const out = [leg(draft.fromDate, from, to)];
+  // A return date means a second ticket, priced separately.
+  if (draft.toDate && draft.toDate !== draft.fromDate) out.push(leg(draft.toDate, to, from));
+  return out;
 }
 
 /** Fresh draft with every field defined, so React inputs stay controlled. */

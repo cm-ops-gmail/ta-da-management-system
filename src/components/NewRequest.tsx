@@ -4,7 +4,8 @@ import {
 } from "lucide-react";
 import { api } from "../api.js";
 import {
-  cfgNum, cfgStr, computeRequest, eligibleModes, emptyDraft, fuelRateFor, type ModeOption,
+  cfgNum, cfgStr, computeRequest, eligibleModes, emptyDraft, fuelRateFor, impliedLegs,
+  type ModeOption,
 } from "../../shared/policy.js";
 import type { Leg, Policy, RequestDraft, SessionUser, TeamMember } from "../../shared/types.js";
 import { Card, ChoiceGrid, Field, Money, MultiSelect, Notice, SearchInput, Toggle } from "./ui.js";
@@ -48,6 +49,22 @@ export default function NewRequest({
     }),
     [policy, user, draft.scope, draft.travelType, teamSize, draft.teamMembers, draft.carSpecialApproval],
   );
+
+  // The journey the form already knows about, kept in step with it. Fares are
+  // carried across so editing a date never wipes what has been typed, and any
+  // extra hops added by hand are left alone at the end of the list.
+  const implied = useMemo(() => impliedLegs(policy, draft), [
+    policy, draft.transportMode, draft.scope, draft.fromDate, draft.toDate,
+    draft.city, draft.route, draft.destination, draft.destinationType,
+  ]);
+  const impliedKey = implied.map((l) => [l.travelDate, l.mode, l.travelFrom, l.travelTo].join("|")).join("\n");
+  useEffect(() => {
+    setDraft((d) => {
+      const kept = d.legs.slice(implied.length);
+      const merged = implied.map((l, i) => ({ ...l, amount: d.legs[i]?.amount ?? 0, note: d.legs[i]?.note ?? "" }));
+      return { ...d, legs: [...merged, ...kept] };
+    });
+  }, [impliedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switching city scope invalidates a mode that only exists on the other side.
   useEffect(() => {
@@ -104,7 +121,10 @@ export default function NewRequest({
             />
           )}
           {step === 1 && (
-            <StepTransport draft={draft} set={set} policy={policy} modes={modes} user={user} currency={currency} />
+            <StepTransport
+              draft={draft} set={set} policy={policy} modes={modes} user={user}
+              currency={currency} impliedCount={implied.length}
+            />
           )}
           {step === 2 && (
             <StepAllowances draft={draft} set={set} policy={policy} user={user} computation={computation} currency={currency} />
@@ -624,7 +644,7 @@ function TeamPicker({
 // ── Step 3 ──────────────────────────────────────────────────────────────────
 
 function StepTransport({
-  draft, set, policy, modes, user, currency,
+  draft, set, policy, modes, user, currency, impliedCount,
 }: {
   draft: RequestDraft;
   set: (p: Partial<RequestDraft>) => void;
@@ -632,6 +652,7 @@ function StepTransport({
   modes: ModeOption[];
   user: SessionUser;
   currency: string;
+  impliedCount: number;
 }) {
   const inside = draft.scope === "inside";
   const juniorMale = inside && !String(user.gender).toLowerCase().startsWith("f") &&
@@ -713,11 +734,12 @@ function StepTransport({
           draft={draft}
           set={set}
           currency={currency}
+          autoCount={impliedCount}
           title={inside ? "Trips taken" : "Travel tickets"}
           subtitle={
             inside
-              ? "Inside-city transport is reimbursed against actual receipts — add each trip."
-              : "Intercity fares are reimbursed at actual. Add each ticket and attach the receipt in the Documents step."
+              ? "Filled in from your travel date and destination — just enter what each trip cost. Reimbursed against actual receipts."
+              : "Filled in from your route and dates — just enter what each ticket cost. Attach the receipts in the Documents step."
           }
         />
       )}
@@ -726,17 +748,32 @@ function StepTransport({
 }
 
 function LegsEditor({
-  draft, set, currency, title, subtitle,
+  draft, set, currency, title, subtitle, autoCount,
 }: {
   draft: RequestDraft;
   set: (p: Partial<RequestDraft>) => void;
   currency: string;
   title: string;
   subtitle: string;
+  /** How many leading trips the form worked out for itself. */
+  autoCount: number;
 }) {
   const legs = draft.legs;
   const update = (i: number, patch: Partial<Leg>) =>
     set({ legs: legs.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) });
+  const remove = (i: number) => set({ legs: legs.filter((_, idx) => idx !== i) });
+
+  const amount = (leg: Leg, i: number) => (
+    <input
+      type="number"
+      inputMode="decimal"
+      min={0}
+      className="field"
+      placeholder={`Amount (${currency})`}
+      value={leg.amount || ""}
+      onChange={(e) => update(i, { amount: Number(e.target.value) })}
+    />
+  );
 
   return (
     <Card
@@ -754,46 +791,56 @@ function LegsEditor({
             })
           }
         >
-          <Plus size={14} /> Add trip
+          <Plus size={14} /> Add another trip
         </button>
       }
     >
       {!legs.length ? (
-        <p className="py-6 text-center text-sm text-slate-400">No trips added yet.</p>
+        <p className="py-6 text-center text-sm text-slate-400">
+          Choose your dates and destination first — the trip is filled in from those.
+        </p>
       ) : (
         <div className="space-y-3">
           {legs.map((leg, i) => (
             <div key={i} className="rounded-xl border border-slate-200 p-3">
-              <div className="mb-2 flex items-center justify-between sm:hidden">
-                <span className="text-xs font-bold text-slate-500">Trip {i + 1}</span>
-                <button
-                  onClick={() => set({ legs: legs.filter((_, idx) => idx !== i) })}
-                  className="rounded-lg p-2 text-slate-400 active:bg-rose-50 active:text-rose-600"
-                  aria-label="Remove trip"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-              <div className="grid gap-2.5 sm:grid-cols-[9rem_1fr_1fr_8rem_auto] sm:items-center sm:gap-3">
-                <input type="date" className="field" value={leg.travelDate} onChange={(e) => update(i, { travelDate: e.target.value })} />
-                <input className="field" placeholder="From" value={leg.travelFrom} onChange={(e) => update(i, { travelFrom: e.target.value })} />
-                <input className="field" placeholder="To" value={leg.travelTo} onChange={(e) => update(i, { travelTo: e.target.value })} />
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  className="field"
-                  placeholder={`Amount (${currency})`}
-                  value={leg.amount || ""}
-                  onChange={(e) => update(i, { amount: Number(e.target.value) })}
-                />
-                <button
-                  onClick={() => set({ legs: legs.filter((_, idx) => idx !== i) })}
-                  className="hidden rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 sm:block"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
+              {i < autoCount ? (
+                /* Worked out from the trip already described, so there is
+                   nothing here to re-enter but the fare. */
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {leg.travelFrom || "—"} → {leg.travelTo || "—"}
+                    </p>
+                    <p className="text-xs text-slate-500">{leg.travelDate || "—"}</p>
+                  </div>
+                  <div className="w-32 shrink-0">{amount(leg, i)}</div>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center justify-between sm:hidden">
+                    <span className="text-xs font-bold text-slate-500">Trip {i + 1}</span>
+                    <button
+                      onClick={() => remove(i)}
+                      className="rounded-lg p-2 text-slate-400 active:bg-rose-50 active:text-rose-600"
+                      aria-label="Remove trip"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <div className="grid gap-2.5 sm:grid-cols-[9rem_1fr_1fr_8rem_auto] sm:items-center sm:gap-3">
+                    <input type="date" className="field" value={leg.travelDate} onChange={(e) => update(i, { travelDate: e.target.value })} />
+                    <input className="field" placeholder="From" value={leg.travelFrom} onChange={(e) => update(i, { travelFrom: e.target.value })} />
+                    <input className="field" placeholder="To" value={leg.travelTo} onChange={(e) => update(i, { travelTo: e.target.value })} />
+                    {amount(leg, i)}
+                    <button
+                      onClick={() => remove(i)}
+                      className="hidden rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 sm:block"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
           <p className="text-right text-sm font-semibold text-slate-700">

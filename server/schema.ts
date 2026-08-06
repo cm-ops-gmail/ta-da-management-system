@@ -188,11 +188,13 @@ export const TABS: TabSpec[] = [
       ["City", "Cox's Bazar", "Cox's Bazar", "Outside", "", "Yes"],
       ["City", "Other District", "Other District", "Outside", "", "Yes"],
 
+      // The last column is the on/off switch: turn one back on here and it
+      // reappears in the form, no code change needed.
       ["TransportMode", "Rickshaw", "Rickshaw", "Inside", "No", "Yes"],
       ["TransportMode", "Bike", "Bike", "Inside", "No", "Yes"],
-      ["TransportMode", "CNG", "CNG", "Inside", "No", "Yes"],
-      ["TransportMode", "Car", "Car", "Inside", "No", "Yes"],
-      ["TransportMode", "CompanyVehicle", "Company Vehicle", "Both", "No", "Yes"],
+      ["TransportMode", "CNG", "CNG", "Inside", "No", "No"],
+      ["TransportMode", "Car", "Car", "Inside", "No", "No"],
+      ["TransportMode", "CompanyVehicle", "Company Vehicle", "Both", "No", "No"],
       ["TransportMode", "PersonalVehicle", "Personal Vehicle (Own Bike / Car)", "Both", "No", "Yes"],
       ["TransportMode", "RideSharing", "Ride Sharing (Uber / Pathao)", "Both", "Yes", "Yes"],
       ["TransportMode", "Bus", "Bus", "Outside", "Yes", "Yes"],
