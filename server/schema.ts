@@ -202,12 +202,14 @@ export const TABS: TabSpec[] = [
 
       // Where an inside-city trip went. `Extra1` says what the form asks for
       // next: "Name" opens a free-text box for the place, "Office" opens the
-      // OtherOffice list below.
+      // OtherOffice list below, "Purpose" asks for nothing beyond the purpose
+      // everyone writes anyway.
       ["DestinationType", "Partner Office", "Partner Office", "Name", "", "Yes"],
       ["DestinationType", "Stakeholder", "Stakeholder", "Name", "", "Yes"],
       ["DestinationType", "University", "University", "Name", "", "Yes"],
       ["DestinationType", "Vendor", "Vendor", "Name", "", "Yes"],
       ["DestinationType", "Other Office", "Other Office", "Office", "", "Yes"],
+      ["DestinationType", "Others", "Others", "Purpose", "", "Yes"],
 
       ["OtherOffice", "Mirpur LC", "Mirpur LC", "", "", "Yes"],
       ["OtherOffice", "Uttara LC", "Uttara LC", "", "", "Yes"],

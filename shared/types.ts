@@ -170,7 +170,7 @@ export interface Policy {
   modes: TransportModeSpec[];
   workedAtOptions: string[];
   /** Inside-city destinations. `needs` decides what the form asks for next. */
-  destinationTypes: { value: string; label: string; needs: "name" | "office" }[];
+  destinationTypes: { value: string; label: string; needs: "name" | "office" | "purpose" }[];
   otherOffices: string[];
   dualWorkstationOptions: string[];
   paymentMethods: string[];

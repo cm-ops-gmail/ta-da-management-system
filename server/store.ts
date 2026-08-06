@@ -85,7 +85,8 @@ export async function loadPolicy(): Promise<Policy> {
     destinationTypes: of("DestinationType").map((r) => ({
       value: r.value,
       label: r.label || r.value,
-      needs: (r.extra_1 === "Office" ? "office" : "name") as "name" | "office",
+      needs: (r.extra_1 === "Office" ? "office" : r.extra_1 === "Purpose" ? "purpose" : "name") as
+        "name" | "office" | "purpose",
     })),
     otherOffices: of("OtherOffice").map((r) => r.value),
     dualWorkstationOptions: of("DualWorkstation").map((r) => r.value),

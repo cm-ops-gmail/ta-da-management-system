@@ -292,6 +292,17 @@ function StepTravelType({
                   </select>
                 </Field>
               )}
+
+              {destinationNeeds === "purpose" && (
+                <Field label="Purpose" required>
+                  <input
+                    className="field"
+                    value={draft.purpose}
+                    onChange={(e) => set({ purpose: e.target.value })}
+                    placeholder="Where you went and why"
+                  />
+                </Field>
+              )}
             </>
           )}
         </div>
