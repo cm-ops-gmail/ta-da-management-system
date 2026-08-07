@@ -98,7 +98,7 @@ export default function Dashboard({
       <Card
         title="My recent requests"
         actions={
-          <button className="text-xs font-semibold text-brand-600 hover:underline" onClick={() => onGoto("my-requests")}>
+          <button className="-mr-2 flex min-h-11 items-center px-2 text-xs font-semibold text-brand-600 hover:underline" onClick={() => onGoto("my-requests")}>
             View all
           </button>
         }

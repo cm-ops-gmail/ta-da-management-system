@@ -157,7 +157,7 @@ export default function RequestList({
                   // Changing what is on screen clears the selection: exporting
                   // a row you can no longer see would be a nasty surprise.
                   onClick={() => { setQuick(f.key); setPicked(new Set()); }}
-                  className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  className={`flex h-9 shrink-0 items-center rounded-lg px-3 text-xs font-semibold transition ${
                     quick === f.key ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -190,10 +190,10 @@ export default function RequestList({
 
         {selectable && !!filtered.length && (
           <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+            <label className="-my-1 flex min-h-11 cursor-pointer items-center gap-2 py-1 text-sm font-medium text-slate-700">
               <input
                 type="checkbox"
-                className="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                className="size-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500 sm:size-4"
                 checked={allPicked}
                 ref={(el) => { if (el) el.indeterminate = picked.size > 0 && !allPicked; }}
                 onChange={(e) => setPicked(e.target.checked ? new Set(filtered.map((r) => r.requestId)) : new Set())}
@@ -228,13 +228,15 @@ export default function RequestList({
               {filtered.map((r) => (
                 <li key={r.requestId} className="flex items-start gap-2">
                   {selectable && (
-                    <input
-                      type="checkbox"
-                      className="mt-4 size-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                      checked={picked.has(r.requestId)}
-                      onChange={() => toggle(r.requestId)}
-                      aria-label={`Select ${r.requestId}`}
-                    />
+                    <label className="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center">
+                      <input
+                        type="checkbox"
+                        className="size-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        checked={picked.has(r.requestId)}
+                        onChange={() => toggle(r.requestId)}
+                        aria-label={`Select ${r.requestId}`}
+                      />
+                    </label>
                   )}
                   <button
                     onClick={() => onOpen(r.requestId)}
@@ -279,7 +281,7 @@ export default function RequestList({
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    {selectable && <th className="w-10 px-3 py-2.5" />}
+                    {selectable && <th className="w-12 px-1 py-2.5" />}
                     <th className="px-3 py-2.5 font-semibold">Request</th>
                     {showEmployee && <th className="px-3 py-2.5 font-semibold">Employee</th>}
                     <th className="px-3 py-2.5 font-semibold">Travel</th>
@@ -297,14 +299,16 @@ export default function RequestList({
                       className="cursor-pointer transition hover:bg-slate-50"
                     >
                       {selectable && (
-                        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            className="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                            checked={picked.has(r.requestId)}
-                            onChange={() => toggle(r.requestId)}
-                            aria-label={`Select ${r.requestId}`}
-                          />
+                        <td className="px-1 py-1" onClick={(e) => e.stopPropagation()}>
+                          <label className="flex size-10 cursor-pointer items-center justify-center">
+                            <input
+                              type="checkbox"
+                              className="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                              checked={picked.has(r.requestId)}
+                              onChange={() => toggle(r.requestId)}
+                              aria-label={`Select ${r.requestId}`}
+                            />
+                          </label>
                         </td>
                       )}
                       <td className="px-3 py-3">

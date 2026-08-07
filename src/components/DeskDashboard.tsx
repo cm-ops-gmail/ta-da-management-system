@@ -93,7 +93,7 @@ export default function DeskDashboard({
         title="Waiting for your decision"
         subtitle="Only requests currently sitting at your desk."
         actions={
-          <button className="text-xs font-semibold text-brand-600 hover:underline" onClick={() => onGoto("desk-pending")}>
+          <button className="-mr-2 flex min-h-11 items-center px-2 text-xs font-semibold text-brand-600 hover:underline" onClick={() => onGoto("desk-pending")}>
             View all
           </button>
         }

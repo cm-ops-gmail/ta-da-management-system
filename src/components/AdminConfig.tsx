@@ -123,7 +123,7 @@ export default function AdminConfig() {
                 </span>
                 <button
                   onClick={() => setData((d) => ({ ...d, [active]: (d[active] || []).filter((_, idx) => idx !== i) }))}
-                  className="shrink-0 rounded-lg p-2 text-slate-400 active:bg-rose-50 active:text-rose-600"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-lg text-slate-400 active:bg-rose-50 active:text-rose-600"
                   aria-label="Delete row"
                 >
                   <Trash2 size={15} />
@@ -170,7 +170,8 @@ export default function AdminConfig() {
                   <td className="px-1 py-1">
                     <button
                       onClick={() => setData((d) => ({ ...d, [active]: (d[active] || []).filter((_, idx) => idx !== i) }))}
-                      className="rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      className="flex size-10 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      aria-label="Delete row"
                     >
                       <Trash2 size={14} />
                     </button>

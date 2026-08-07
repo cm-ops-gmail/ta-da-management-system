@@ -210,7 +210,51 @@ export default function Reports({
         {!claims.length ? (
           <Empty title="Nothing matches these filters" hint="Widen the dates or clear the department." />
         ) : (
-          <div className="-mx-1 overflow-x-auto px-1">
+          <>
+          {/* Phones: a card per claim. Eight columns cannot be read sideways on
+              a 390px screen, and the figures are the point of this report. */}
+          <ul className="space-y-2 md:hidden">
+            {claims.map((r) => (
+              <li key={r.requestId}>
+                <button
+                  onClick={() => onOpen(r.requestId)}
+                  className="w-full rounded-lg border border-slate-200 p-3 text-left transition active:bg-slate-50"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-mono text-xs font-semibold text-slate-700">{r.requestId}</span>
+                      <span className="mt-0.5 block truncate text-sm font-medium text-slate-800">{r.employeeName}</span>
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        {r.department} · {BASIS[basis].of(r) || "—"}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-sm font-semibold text-slate-900">
+                        <Money value={r.totalClaim} currency={currency} />
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-400">{r.status.replace(/_/g, " ")}</span>
+                    </span>
+                  </div>
+                  {(r.approvedAmount > 0 || PAID_STATUSES.includes(r.status)) && (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-2 text-xs">
+                      {r.approvedAmount > 0 && (
+                        <span className="text-amber-700">
+                          Approved <Money value={r.approvedAmount} currency={currency} />
+                        </span>
+                      )}
+                      {PAID_STATUSES.includes(r.status) && (
+                        <span className="text-emerald-700">
+                          Paid <Money value={r.paidAmount || r.finalPayable} currency={currency} />
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="-mx-1 hidden overflow-x-auto px-1 md:block print:block">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
@@ -252,6 +296,7 @@ export default function Reports({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 
