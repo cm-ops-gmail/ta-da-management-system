@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Banknote, BarChart3, CheckCheck, FileText, HandCoins, Inbox, LayoutDashboard, ListChecks,
+  Banknote, FileText, HandCoins, Inbox, LayoutDashboard, ListChecks,
   LogOut, Menu, Plus, Settings, ShieldCheck, User, Wallet, X,
 } from "lucide-react";
 import { useTenMSAuth } from "@tenminuteschool/auth-admin-react";
@@ -9,7 +9,6 @@ import { HOST_OWNS_SESSION } from "./lib/embed.js";
 import type { Policy, RequestDraft, SessionUser, StatusGroup } from "../shared/types.js";
 import Login from "./components/Login.js";
 import Dashboard from "./components/Dashboard.js";
-import DeskDashboard from "./components/DeskDashboard.js";
 import NewRequest from "./components/NewRequest.js";
 import RequestList from "./components/RequestList.js";
 import RequestDetail from "./components/RequestDetail.js";
@@ -154,13 +153,11 @@ export default function App() {
   ];
 
   const deskNav: NavItem[] = ([
-    { key: "desk", label: "Desk Overview", short: "Desk", icon: ShieldCheck, show: true },
+    { key: "desk-reports", label: "Dashboard", short: "Home", icon: LayoutDashboard, show: isAdmin || isFinance },
+    { key: "desk-all", label: "All Claims", short: "All", icon: ListChecks, show: true },
     { key: "desk-pending", label: "Pending Approvals", short: "Pending", icon: Inbox, show: true, badge: inbox },
-    { key: "desk-processed", label: "Decided by Me", short: "Decided", icon: CheckCheck, show: true },
     { key: "desk-advances", label: "Advance Approvals", short: "Advance", icon: HandCoins, show: reviewsAdvances },
     { key: "desk-payments", label: "Payments", short: "Pay", icon: Banknote, show: isFinance || isAdmin },
-    { key: "desk-all", label: "All Claims", short: "All", icon: ListChecks, show: true },
-    { key: "desk-reports", label: "Reports", short: "Report", icon: BarChart3, show: isAdmin || isFinance },
     { key: "admin", label: "Configuration", short: "Config", icon: Settings, show: isAdmin },
   ] as (NavItem & { show: boolean })[]).filter((n) => n.show).map(({ show: _show, ...n }) => n);
 
@@ -195,9 +192,13 @@ export default function App() {
     }
   }
 
+  // Landing on the desk means landing on its first screen, whatever that is for
+  // this person — a line manager has no Dashboard.
+  const deskHome = deskNav[0]?.key || "desk-all";
+
   const switchWorkspace = (next: Workspace) => {
     setWorkspace(next);
-    setView({ name: next === "self" ? "dashboard" : "desk" });
+    setView({ name: next === "self" ? "dashboard" : deskHome });
     setMenuOpen(false);
   };
 
@@ -395,15 +396,6 @@ export default function App() {
           )}
 
           {/* ── Approval Desk workspace ── */}
-          {view.name === "desk" && (
-            <DeskDashboard
-              user={user}
-              policy={policy}
-              onOpen={(requestId) => setView({ name: "detail", requestId })}
-              onGoto={go}
-            />
-          )}
-
           {view.name === "desk-pending" && (
             <RequestList
               scope="pending"
@@ -411,16 +403,6 @@ export default function App() {
               showFilters
               title="Pending Approvals"
               subtitle="Other people's requests waiting on your decision right now."
-              onOpen={(requestId) => setView({ name: "detail", requestId })}
-            />
-          )}
-
-          {view.name === "desk-processed" && (
-            <RequestList
-              scope="processed"
-              refreshKey={refreshKey}
-              title="Decided by Me"
-              subtitle="Requests you have already approved, returned or rejected."
               onOpen={(requestId) => setView({ name: "detail", requestId })}
             />
           )}
@@ -469,7 +451,7 @@ export default function App() {
               requestId={(view as { requestId: string }).requestId}
               user={user}
               policy={policy}
-              onBack={() => setView({ name: workspace === "self" ? "dashboard" : "desk" })}
+              onBack={() => setView({ name: workspace === "self" ? "dashboard" : deskHome })}
               onEdit={(draft, requestId) => {
                 setWorkspace("self");
                 setView({ name: "new", editing: { draft, requestId } });

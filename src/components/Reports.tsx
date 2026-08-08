@@ -109,7 +109,7 @@ export default function Reports({
     <div className="space-y-5 print:space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-slate-900 sm:text-xl">Claims report</h1>
+          <h1 className="text-lg font-bold text-slate-900 sm:text-xl">Dashboard</h1>
           <p className="mt-1 text-sm text-slate-500">
             {BASIS[basis].label.toLowerCase()} · {period}
             {department ? ` · ${department}` : " · all departments"}
